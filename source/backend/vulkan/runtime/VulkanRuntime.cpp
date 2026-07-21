@@ -176,9 +176,6 @@ void VulkanRuntime::onGabageCollect(int level) {
 }
 
 Backend* VulkanRuntime::onCreate(const BackendConfig* config, Backend* origin) const {
-    if (nullptr != config) {
-        MNN_ASSERT(config->precision == mPrecision);
-    }
     auto backend = new VulkanBackend(this);
     backend->setMetaPtr(pMeta);
     return backend;
