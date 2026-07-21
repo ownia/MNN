@@ -140,9 +140,11 @@ static int benchmark(Llm* llm, const std::vector<std::string>& prompts, int max_
     if (context->pixels_mp > 0.0f) {
         vision_speed = context->pixels_mp / vision_s;
     }
-    float audio_speed = 0.0f;
+    float audio_process_rtf = 0.0f;
+    float audio_end_to_end_rtf = 0.0f;
     if (context->audio_input_s > 0.0f) {
-        audio_speed = context->audio_input_s / audio_s;
+        audio_process_rtf = audio_s / context->audio_input_s;
+        audio_end_to_end_rtf = (audio_s + prefill_s + decode_s + sample_s) / context->audio_input_s;
     }
     MNN_PRINT("\n#################################\n");
     MNN_PRINT("prompt tokens num = %d\n", prompt_len);
@@ -157,7 +159,8 @@ static int benchmark(Llm* llm, const std::vector<std::string>& prompts, int max_
     MNN_PRINT("prefill speed = %.2f tok/s\n", prompt_len / prefill_s);
     MNN_PRINT(" decode speed = %.2f tok/s\n", decode_len / decode_s);
     MNN_PRINT(" vision speed = %.3f MP/s\n", vision_speed);
-    MNN_PRINT(" audio RTF = %.3f \n", audio_s / context->audio_input_s);
+    MNN_PRINT(" audio process RTF = %.3f \n", audio_process_rtf);
+    MNN_PRINT(" audio end-to-end RTF = %.3f \n", audio_end_to_end_rtf);
     MNN_PRINT("##################################\n");
     return 0;
 }
