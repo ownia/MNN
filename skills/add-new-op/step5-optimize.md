@@ -191,6 +191,11 @@ OpenCLCreatorRegister<TypedCreator<MyCustomOp<cl_data_t>>> __my_custom_op(OpType
 
 ## 5.4 Vulkan 后端
 
+先检查 `MNN_VULKAN_IMAGE`。Image 与 buffer 是互斥实现，源码、shader 和 compiler 目录必须与目标构建一致：
+
+- `MNN_VULKAN_IMAGE=ON`：使用 `source/backend/vulkan/image/`
+- `MNN_VULKAN_IMAGE=OFF`：使用 `source/backend/vulkan/buffer/`
+
 ### 5.4.1 生成模板代码
 
 ```bash
@@ -225,6 +230,13 @@ static bool gResistor = []() {
 }();
 ```
 
+Vulkan CMake 使用普通 `GLOB_RECURSE` 收集源码。新增 `.cpp` 后必须重新运行 CMake 配置，否则新文件不会进入构建图：
+
+```bash
+cmake -S . -B build
+cmake --build build --target MNN_Vulkan
+```
+
 ---
 
 ## 5.5 CUDA 后端
@@ -243,22 +255,24 @@ static bool gResistor = []() {
 cd build
 
 # CPU（已通过）
-./run_test.out op/MyCustomOp
+./run_test.out op/MyCustomOp 0 0 1
 
 # Metal（需要 Mac + Metal 支持）
-./run_test.out op/MyCustomOp 0 0 3    # 3 = Metal
+./run_test.out op/MyCustomOp 1 0 1
 
 # OpenCL
-./run_test.out op/MyCustomOp 0 0 6    # 6 = OpenCL
+./run_test.out op/MyCustomOp 3 0 1
 
 # Vulkan
-./run_test.out op/MyCustomOp 0 0 7    # 7 = Vulkan
+./run_test.out op/MyCustomOp 7 0 1
 
 # CUDA
-./run_test.out op/MyCustomOp 0 0 1    # 1 = CUDA
+./run_test.out op/MyCustomOp 2 0 1
 ```
 
-> **后端 ID 参考**：0=CPU, 1=CUDA, 3=Metal, 6=OpenCL, 7=Vulkan
+参数顺序是 `[test_name] [backend] [precision] [thread/mode] [flag]`。
+
+> **后端 ID 参考**：0=CPU, 1=Metal, 2=CUDA, 3=OpenCL, 7=Vulkan
 
 ### 通过标准
 
