@@ -8,6 +8,7 @@
 
 #include <MNN/expr/Expr.hpp>
 #include <MNN/expr/ExprCreator.hpp>
+#include <limits>
 #include "MNNTestSuite.h"
 #include "TestUtils.h"
 
@@ -66,6 +67,7 @@ public:
             return false;
         }
         return commonCase() &&
+             intCase() &&
                zeroCase();
 
     }
@@ -73,8 +75,8 @@ public:
         auto input = _Input({2, 3}, NCHW);
         input->setName("input_tensor");
         // set input data
-        const float inpudata[] = { 1.0, 0.0, 2.0,
-                                   3.0, 0.0, 4.0 };
+        const float inpudata[] = { 1.0, -1.0, 2.0,
+                       3.0, std::numeric_limits<float>::quiet_NaN(), 4.0 };
         auto inputPtr          = input->writeMap<float>();
         memcpy(inputPtr, inpudata, 6 * sizeof(float));
         input->unMap();
@@ -91,6 +93,27 @@ public:
         auto gotOutput                        = output->readMap<int>();
         if (!checkVector<int>(gotOutput, expectedOutput.data(), 8, 0)) {
             MNN_ERROR("WhereTest test failed!\n");
+            return false;
+        }
+        return true;
+    }
+
+    bool intCase() {
+        auto input = _Input({2, 3}, NCHW, halide_type_of<int32_t>());
+        const int32_t inputData[] = {0, 2, 0, 3, 0, 4};
+        memcpy(input->writeMap<int32_t>(), inputData, sizeof(inputData));
+        input->unMap();
+
+        auto output = _Where(input);
+        const std::vector<int> expectedOutput = {0, 1, 1, 0, 1, 2};
+        const std::vector<int> expectedShape = {3, 2};
+        auto realShape = output->getInfo()->dim;
+        if (!checkVector<int>(realShape.data(), expectedShape.data(), 2, 0)) {
+            MNN_ERROR("WhereTest int shape mismatch!\n");
+            return false;
+        }
+        if (!checkVector<int>(output->readMap<int>(), expectedOutput.data(), expectedOutput.size(), 0)) {
+            MNN_ERROR("WhereTest int test failed!\n");
             return false;
         }
         return true;

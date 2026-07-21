@@ -1,0 +1,45 @@
+#ifdef USE_INT
+#define INPUT_TYPE int
+#else
+#define INPUT_TYPE FLOAT
+#endif
+
+layout(set = 0, binding = 0) writeonly buffer destBuffer {
+    int data[];
+} uOutput;
+
+layout(set = 0, binding = 1) readonly buffer sourceBuffer {
+    INPUT_TYPE data[];
+} uInput;
+
+layout(set = 0, binding = 2) uniform constBuffer {
+    ivec4 size;
+    ivec4 strides0;
+    ivec4 strides1;
+} uConst;
+
+layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
+
+int getStride(int dimension) {
+    return dimension < 4 ? uConst.strides0[dimension] : uConst.strides1[dimension - 4];
+}
+
+void main() {
+    int outputIndex = 0;
+    for (int inputIndex = 0; inputIndex < uConst.size.x; ++inputIndex) {
+        if (!(uInput.data[inputIndex] > INPUT_TYPE(0))) {
+            continue;
+        }
+        if (outputIndex >= uConst.size.z) {
+            return;
+        }
+        int index = inputIndex;
+        for (int dimension = 0; dimension < uConst.size.y; ++dimension) {
+            int stride = getStride(dimension);
+            int coordinate = stride == 0 ? index : index / stride;
+            index -= coordinate * stride;
+            uOutput.data[outputIndex * uConst.size.y + dimension] = coordinate;
+        }
+        ++outputIndex;
+    }
+}
