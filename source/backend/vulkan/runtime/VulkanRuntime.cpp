@@ -117,7 +117,9 @@ VulkanRuntime::VulkanRuntime(const Backend::Info& info, std::shared_ptr<VulkanDe
                                         0x00000201, 0x00000202, 0x00000204};
     auto iter = std::find(legalModeValues.begin(), legalModeValues.end(), (uint32_t)info.gpuMode);
     if (iter == legalModeValues.end()) {
+#ifndef MNN_GPU_PROFILE_SILENT
         MNN_PRINT("The customized gpu mode is illegal for Vulkan backend. Using the default mode.\n");
+#endif
         mGpuMode = 0x00000004;
     } else {
         mGpuMode = info.gpuMode;

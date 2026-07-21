@@ -231,9 +231,11 @@ inline void VulkanTimeProfiler::printTimeProfile() const {
         MNN_PRINT("Vulkan Time Profiling dropped %u scopes (capacity=%u)\n", mDroppedScopes, mCapacity);
     }
 
+#ifndef MNN_GPU_PROFILE_SILENT
     MNN_PRINT("\n[Execution Profiling (start)]\n");
     _printKind(Kind::Execution, timestamps, tickToMs);
     MNN_PRINT("\n[Execution Profiling (end)]\n");
+#endif
 
     bool hasShader = false;
     for (const auto& record : mRecords) {

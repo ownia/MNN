@@ -270,7 +270,9 @@ void VulkanBackend::onExecuteEnd() const {
     if (mTimeProfiler) {
         mTimeProfiler->printTimeProfile();
     }
+#ifndef MNN_GPU_PROFILE_SILENT
     MNN_PRINT("Total time calculated by CPU is %6.2f ms.\n", totalTime);
+#endif
 #else
     _finish();
 #endif
