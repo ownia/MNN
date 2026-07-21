@@ -11,7 +11,7 @@ description: MNN Vulkan 后端 op/kernel 优化与扩展。覆盖 GLSL .comp + m
 
 ## 核心原则
 
-1. **改 `.comp` 必跑 makeshader**。GLSL 源不会被构建系统直接编译。`buildKernelFromSource` 读的是 `AllShader.h/cpp` 中的 SPIR-V 二进制（由 `makeshader.py` 把 `.comp` → `glslangValidator -V -O` → 嵌入字符串）。**最常见的"改了不生效"根因**就是 makeshader 没跑。
+1. **改 `.comp` 必跑 makeshader**。GLSL 源不会被构建系统直接编译。`buildKernelFromSource` 读的是 `AllShader.h/cpp` 中的 SPIR-V 二进制（由 `makeshader.py` 把 `.comp` → shader compiler → SPIR-V optimization → 嵌入字符串）。**最常见的"改了不生效"根因**就是 makeshader 没跑。可用 `MNN_VULKAN_SHADER_COMPILER=/path/to/glslc python3 makeshader.py` 显式选择新版 `glslc`。
 
 2. **dispatcher 选路要先摸清**。Vulkan 同 op 多条路径：CoopMat (Adreno only) / subgroup (Mali/Adreno) / nosubgroup (兜底) / FP gemm。新加 quant bit 不可能一次扩完所有，必须显式让未扩展的 path 退到已扩展的（或 fallback 到 fp/CPU）。
 
@@ -71,6 +71,12 @@ cd source/backend/vulkan/buffer/compiler && python3 makeshader.py
 ```
 
 verify: `grep -c '<my_kernel>' AllShader.h` > 0。
+
+使用 `glslc` 时显式传入编译器，避免 PATH 中旧版 `glslangValidator` 编译新扩展失败：
+
+```bash
+MNN_VULKAN_SHADER_COMPILER=/usr/local/bin/glslc python3 makeshader.py
+```
 
 新加 shader 还要在 `glsl/macro.json` 里登记 `useFP16: true/false` 决定是否生成 `_FP16` 变体，否则 host 端 `getPipeline("glsl_<name>_FP16_comp", ...)` 找不到。
 

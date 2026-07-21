@@ -14,6 +14,7 @@ gDefaultPath = "../execution/glsl"
 gOutputHeadFile = "../shaders/AllShader.h"
 gOutputSourceFile = "AllShader.cpp"
 gGeneratedShaderDir = os.path.join(".cache", "shader", "generated")
+gShaderCompiler = os.environ.get("MNN_VULKAN_SHADER_COMPILER", "glslangValidator")
 
 gEnableSpirvOpt = True
 gSpirvOptArgs = ["-O"]
@@ -52,6 +53,22 @@ def _run_cmd(args, stdout_path=None):
     if proc.stdout:
         print(proc.stdout)
     return proc.returncode
+
+def _compile_shader(shader, output, target_env):
+    compiler_name = os.path.basename(gShaderCompiler)
+    if compiler_name == "glslc":
+        args = [gShaderCompiler]
+        if target_env:
+            args.append("--target-env=" + target_env)
+        args += [shader, "-o", output]
+    else:
+        args = [gShaderCompiler, "-V"]
+        if target_env:
+            args += ["--target-env", target_env]
+        args += [shader, "-o", output]
+    ret = _run_cmd(args)
+    if ret != 0:
+        raise RuntimeError("Shader compilation failed: " + shader)
 
 def _spirv_opt_available():
     return shutil.which("spirv-opt") is not None
@@ -520,14 +537,14 @@ def genCppFile(objs, inc, dst):
                 out = spirv_save
                 rm = False
             extra_flags = ""
-            target_env_args = []
+            target_env = ""
             try:
                 with open(s, "r") as rf:
                     body = rf.read()
                     if "GL_KHR_shader_subgroup" in body:
-                        target_env_args = ["--target-env", "vulkan1.1"]
+                        target_env = "vulkan1.1"
             except:
-                target_env_args = []
+                target_env = ""
 
             spirv_opt_tag = _spirv_opt_tag()
             enable_spirv_opt = len(spirv_opt_tag) > 0
@@ -537,7 +554,7 @@ def genCppFile(objs, inc, dst):
                 raw_out = out + ".raw"
                 need_remove_raw = True
 
-            _run_cmd(["glslangValidator", "-V"] + target_env_args + [s, "-o", raw_out])
+            _compile_shader(s, raw_out, target_env)
             if enable_spirv_opt:
                 ret = _run_cmd(["spirv-opt"] + gSpirvOptArgs + [raw_out, "-o", out])
                 if ret != 0:
