@@ -37,6 +37,23 @@ static bool _hasExtension(const std::vector<VkExtensionProperties>& exts, const 
     });
 }
 
+static PFN_vkGetPhysicalDeviceFeatures2 _getPhysicalDeviceFeatures2(VkInstance instance) {
+#ifdef MNN_USE_LIB_WRAPPER
+    if (vkGetPhysicalDeviceFeatures2 != nullptr) {
+        return vkGetPhysicalDeviceFeatures2;
+    }
+    return reinterpret_cast<PFN_vkGetPhysicalDeviceFeatures2>(vkGetPhysicalDeviceFeatures2KHR);
+#else
+    auto getFeatures2 = reinterpret_cast<PFN_vkGetPhysicalDeviceFeatures2>(
+        vkGetInstanceProcAddr(instance, "vkGetPhysicalDeviceFeatures2"));
+    if (getFeatures2 == nullptr) {
+        getFeatures2 = reinterpret_cast<PFN_vkGetPhysicalDeviceFeatures2>(
+            vkGetInstanceProcAddr(instance, "vkGetPhysicalDeviceFeatures2KHR"));
+    }
+    return getFeatures2;
+#endif
+}
+
 static VulkanDevice::SubgroupInfo _querySubgroupInfo(VkPhysicalDevice physicalDevice) {
     VulkanDevice::SubgroupInfo info;
     VkPhysicalDeviceProperties2 deviceProperties2 = {};
@@ -669,13 +686,7 @@ void VulkanDevice::checkFP16(const std::vector<VkExtensionProperties>& available
     mFP16Info.enabledShaderFloat16Int8Features = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_FLOAT16_INT8_FEATURES};
     mFP16Info.enabled16BitStorageFeatures = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_16BIT_STORAGE_FEATURES};
 
-    VkInstance instance = mInstance->get();
-    auto getFeatures2 =
-        (PFN_vkGetPhysicalDeviceFeatures2)vkGetInstanceProcAddr(instance, "vkGetPhysicalDeviceFeatures2");
-    if (!getFeatures2) {
-        getFeatures2 =
-            (PFN_vkGetPhysicalDeviceFeatures2)vkGetInstanceProcAddr(instance, "vkGetPhysicalDeviceFeatures2KHR");
-    }
+    auto getFeatures2 = _getPhysicalDeviceFeatures2(mInstance->get());
     if (!getFeatures2) {
         return;
     }
@@ -736,12 +747,7 @@ void VulkanDevice::checkCoopMat(const std::vector<VkExtensionProperties>& availa
     mCoopMatInfo.selectedS8CoopMatShape.clear();
 
     VkInstance instance = mInstance->get();
-    auto getFeatures2 =
-        (PFN_vkGetPhysicalDeviceFeatures2)vkGetInstanceProcAddr(instance, "vkGetPhysicalDeviceFeatures2");
-    if (!getFeatures2) {
-        getFeatures2 =
-            (PFN_vkGetPhysicalDeviceFeatures2)vkGetInstanceProcAddr(instance, "vkGetPhysicalDeviceFeatures2KHR");
-    }
+    auto getFeatures2 = _getPhysicalDeviceFeatures2(instance);
     if (!getFeatures2) {
         return;
     }
@@ -821,13 +827,7 @@ void VulkanDevice::checkInt8(const std::vector<VkExtensionProperties>& available
     mInt8Info.enabled8BitStorageFeatures = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_8BIT_STORAGE_FEATURES};
     mInt8Info.enabledVulkan12Int8Features = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES};
 
-    VkInstance instance = mInstance->get();
-    auto getFeatures2 =
-        (PFN_vkGetPhysicalDeviceFeatures2)vkGetInstanceProcAddr(instance, "vkGetPhysicalDeviceFeatures2");
-    if (!getFeatures2) {
-        getFeatures2 =
-            (PFN_vkGetPhysicalDeviceFeatures2)vkGetInstanceProcAddr(instance, "vkGetPhysicalDeviceFeatures2KHR");
-    }
+    auto getFeatures2 = _getPhysicalDeviceFeatures2(mInstance->get());
     if (!getFeatures2) {
         return;
     }

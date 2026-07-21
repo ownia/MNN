@@ -263,5 +263,6 @@ unified memory 带宽很高，但 LLM decode 实测 BW 饱和度往往不高。B
 | 输出全 FFFF / 同一个 token | weight buffer layout 不对，或 dispatch 调到了未扩展的 path（CoopMat 拿到 w2 buffer 等） |
 | 输出合法字但没逻辑 | dequant 数值错；先看 sign-extension（`bitfieldExtract` int vs uint）和 originOffset fold |
 | Mac 通 Android 崩 | (a) driver 差异 → 换 nosubgroup 路径试；(b) buffer 总量超 limit → 用小模型验证 |
+| `vkGetPhysicalDeviceFeatures2` 在调用入口崩溃 | `MNN_USE_LIB_WRAPPER` 下先检查函数地址；不要用 `vkGetInstanceProcAddr` 重查与 wrapper 全局函数指针同名的符号，否则 ELF interposition 可能返回数据符号地址。直接使用 wrapper 已加载的函数指针 |
 | 4B 模型 Android Vulkan 重启 | 90% 是 image vs buffer 后端不匹配（默认 image 后端对某些 op 路径未实现）。先 `-DMNN_VULKAN_IMAGE=OFF` 切 buffer 后端验证。如果切 buffer 仍崩，才是 buffer 总量管理问题 |
 | 性能不达预期 | 先确认走的哪条路径 (CoopMat / subgroup / nosubgroup)，再算饱和度 |
