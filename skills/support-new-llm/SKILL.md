@@ -26,6 +26,8 @@ MNN 的模型导出本质上是**对照 HuggingFace transformers 库中原始模
 
 > **🚨 测试标准要有定力**：每步的通过标准是明确的（如"C++ 能正确描述图片内容"），不能因为"差不多能跑"就跳过。"能感知到一些信号但描述不准确"不等于通过，必须达到与 HF 模型相当的输出质量才算完成。
 
+> **🚨 音频生成不能只检查 WAV 非空**：同时检查是否正常生成 EOS（而不是耗尽帧上限）、峰值/RMS 是否处于可听范围，并试听确认语义。按语言模式、参考音频有无等条件组合覆盖测试；不受支持的组合必须明确报错，不能输出静音文件后返回成功。
+
 > **🚨 多模态/embedding 对齐先看 C++ 端真实输入输出**：不要只比 Python 导出逻辑。先直接打印并比对 C++ 运行时的 chat template、token ids、以及必要时的中间输入，确认 runtime tokenizer/Jinja/post_processor 与 HuggingFace 完全一致，再继续看视觉或量化路径。
 
 > **🚨 改导出模板先做“临时 config 覆盖”验证**：当修改 `llm_config.json` / `config.json` 里的 `jinja.chat_template` 时，不要一上来全量重导出模型。先用现有 MNN 模型目录配一个临时 `config.json` 覆盖 `base_dir + jinja/context`，直接跑 C++ `llm_demo`/`embedding_demo` 验证 prompt token 数、构造出的语义和最终结果是否与基线一致，再决定是否全量 re-export。

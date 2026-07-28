@@ -1839,6 +1839,11 @@ bool Omni::generateTTS(const std::string& text, const std::string& language, int
         MNN_ERROR("[Error]: unsupported Qwen3-TTS language: %s\n", language.c_str());
         return false;
     }
+    if (normalizedLanguage == "auto" && ref_audio.empty()) {
+        MNN_ERROR("[Error]: Qwen3-TTS auto language requires ref_audio; specify a language explicitly or provide "
+                  "--ref_audio <wav>\n");
+        return false;
+    }
     mTokenizer->set_chat_template_context("{\"qwen3_tts_language\":\"" + normalizedLanguage + "\"}");
     ChatMessages messages;
     messages.emplace_back("assistant", text);
@@ -1847,7 +1852,8 @@ bool Omni::generateTTS(const std::string& text, const std::string& language, int
         MNN_ERROR("[Error]: Qwen3-TTS chat template produced empty prompt\n");
         return false;
     }
-    bool ok = mTalker->generateQwen3TTS(prompt, max_new_tokens, ref_audio);
+    const int codecPrefixLength = normalizedLanguage == "auto" ? 5 : 6;
+    bool ok = mTalker->generateQwen3TTS(prompt, codecPrefixLength, max_new_tokens, ref_audio);
     const auto* talkerContext = mTalker->getContext();
     if (talkerContext) {
         mContext->prompt_len = talkerContext->prompt_len;
@@ -2442,7 +2448,8 @@ int Talker::sample(Express::VARP logits, int offset, int size) {
     return token;
 }
 
-bool Talker::generateQwen3TTS(const std::string& prompt, int maxFrames, const std::string& refAudio) {
+bool Talker::generateQwen3TTS(const std::string& prompt, int codecPrefixLength, int maxFrames,
+                              const std::string& refAudio) {
     CHECK_LLM_RUNNING_RET(mContext, false);
     MNN::Express::ExecutorScope s(mExecutor);
     if (!isQwen3TTSTalker(mConfig)) {
@@ -2477,13 +2484,13 @@ bool Talker::generateQwen3TTS(const std::string& prompt, int maxFrames, const st
     mContext->output_tokens.clear();
     mContext->gen_seq_len = 0;
 
-    if (inputIds.size() <= 6) {
+    if (inputIds.size() <= codecPrefixLength) {
         MNN_ERROR("[Error]: qwen3_tts prompt ids too short: %zu\n", inputIds.size());
         mContext->status = LlmStatus::INTERNAL_ERROR;
         return false;
     }
-    std::vector<int> codecPrefix(inputIds.begin(), inputIds.begin() + 6);
-    std::vector<int> textIds(inputIds.begin() + 6, inputIds.end());
+    std::vector<int> codecPrefix(inputIds.begin(), inputIds.begin() + codecPrefixLength);
+    std::vector<int> textIds(inputIds.begin() + codecPrefixLength, inputIds.end());
     std::vector<int> ttsIds {mConfig->tts_bos_token_id(), mConfig->tts_eos_token_id(),
                              mConfig->tts_pad_token_id()};
     VARP speakerEmbedding = nullptr;

@@ -87,7 +87,8 @@ public:
     VARP token2wav(const std::vector<int>& codec_tokens);
     void token2wav(bool talker_done = false);
     void generate();
-    bool generateQwen3TTS(const std::string& prompt, int maxFrames, const std::string& refAudio);
+    bool generateQwen3TTS(const std::string& prompt, int codecPrefixLength, int maxFrames,
+                          const std::string& refAudio);
     void stepPrefill();
     void stepForward(int stepIdx);
     void finalize();
