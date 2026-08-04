@@ -641,7 +641,7 @@ VARP whisper_fbank(VARP waveform, int sample_rate, int n_mels, int n_fft, int ho
         MNN_ERROR("whisper_fbank: n_mels out of range [1, 1024], got %d\n", n_mels);
         return nullptr;
     }
-    if (n_fft < 2 || hop_length <= 0 || chunk_len <= 0 || sample_rate <= 0) {
+    if (n_fft < 2 || hop_length <= 0 || chunk_len < 0 || sample_rate <= 0) {
         MNN_ERROR("whisper_fbank: invalid parameter (n_fft=%d, hop_length=%d, chunk_len=%d, sample_rate=%d)\n",
                   n_fft, hop_length, chunk_len, sample_rate);
         return nullptr;
