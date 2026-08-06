@@ -827,9 +827,16 @@ void ConvBufLowMemoryExecution::tuneGemvLowMemory(Tensor* input, Tensor* output)
     const int outputChannelBlocks = UP_DIV(outChannel, 4);
     const int blockNum = mResource->mBlockSize;
     const int blockDim = mResource->mInputChannel / mResource->mBlockSize;
+    const int packedBlockDim = blockDim / 4;
     bool useLocalMem = inputChannels >= 32;
+    const bool hasBlockScaleReuseCandidate =
+        mResource->mNumQuantBit == 4 && useLocalMem && inputChannels == 1024 && outChannel == 3072 &&
+        blockNum == 8 && blockDim == 128;
     std::string info = std::to_string(inputChannels) + "_" + std::to_string(outChannel);
     std::set<std::string> buildOption = mResource->mBuildOptions;
+    if (hasBlockScaleReuseCandidate) {
+        info += "_block_scale_reuse";
+    }
     int inputChannelLeaves = 0;
     if (mResource->mNumQuantBit == 4 || mResource->mNumQuantBit == 3 || mResource->mNumQuantBit == 2) {
         inputChannelLeaves = useLocalMem ? (inputChannels % 4) : (blockDim % 4);
@@ -881,6 +888,9 @@ void ConvBufLowMemoryExecution::tuneGemvLowMemory(Tensor* input, Tensor* output)
         for (int ksize = 8; ksize <= 256; ksize *= 2) {
             auto option = buildOption;
             option.emplace("-DWGS=" + std::to_string(ksize));
+            if (hasBlockScaleReuseCandidate && ksize < packedBlockDim) {
+                option.emplace("-DGEMV_BLOCK_SCALE_REUSE");
+            }
             auto kernel = mOpenCLBackend->getOpenCLRuntime()->buildKernel("gemv_conv1x1_buf", "gemv_conv_c8_buf",
                                                                           option, mOpenCLBackend->getPrecision());
             uint32_t maxWorkGroupSize =
@@ -925,6 +935,9 @@ void ConvBufLowMemoryExecution::tuneGemvLowMemory(Tensor* input, Tensor* output)
     }
 
     buildOption.emplace("-DWGS=" + std::to_string(local_size));
+    if (hasBlockScaleReuseCandidate && local_size < packedBlockDim) {
+        buildOption.emplace("-DGEMV_BLOCK_SCALE_REUSE");
+    }
     mGlobalWorkSize = {static_cast<uint32_t>(local_size), static_cast<uint32_t>(UP_DIV(outChannel, 8))};
     unit.kernel = mOpenCLBackend->getOpenCLRuntime()->buildKernel("gemv_conv1x1_buf", "gemv_conv_c8_buf", buildOption,
                                                                   mOpenCLBackend->getPrecision());

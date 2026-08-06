@@ -132,6 +132,10 @@ __kernel void gemv_conv_c8_buf(GLOBAL_SIZE_DIM_3
     input_offset = out_b_idx * srcChannelAlign;
     output_offset = oc8 + out_b_idx * dstChannelAlign;
 #endif
+#if QUANT_BIT == 4 && defined(GEMV_BLOCK_SCALE_REUSE)
+    COMPUTE_FLOAT8 scale, offset;
+    int cachedBlock = -1;
+#endif
     for(int j = lid; j < loop; j+=WGS){
         #if QUANT_BIT == 8
         int k2 = j << 1;
@@ -176,6 +180,22 @@ __kernel void gemv_conv_c8_buf(GLOBAL_SIZE_DIM_3
         }
         #else
         int k4 = j << 2;
+#if QUANT_BIT == 4 && defined(GEMV_BLOCK_SCALE_REUSE)
+        const int currentBlock = k4 / blockDim;
+        if (cachedBlock != currentBlock) {
+            #ifdef ASYMMETRIC
+            COMPUTE_FLOAT16 scaleOffset = CONVERT_COMPUTE_FLOAT16(
+                convert_float16(vload16(0, dequantScaleOffset + oc8 * 2 + currentBlock * dstChannelC4 * 8)) / coef);
+            scale = scaleOffset.s02468ace;
+            offset = scaleOffset.s13579bdf;
+            #else
+            scale = CONVERT_COMPUTE_FLOAT8(
+                convert_float8(vload8(0, dequantScaleOffset + oc8 + currentBlock * dstChannelC4 * 4)) / coef);
+            offset = (COMPUTE_FLOAT8)(-8) * scale;
+            #endif
+            cachedBlock = currentBlock;
+        }
+#else
         #ifdef ASYMMETRIC
         COMPUTE_FLOAT8 scale, offset;
         {
@@ -193,6 +213,7 @@ __kernel void gemv_conv_c8_buf(GLOBAL_SIZE_DIM_3
         COMPUTE_FLOAT8 offset = (COMPUTE_FLOAT8)(-8) * scale;
         #endif
         #endif
+#endif
         COMPUTE_FLOAT8 wei;
         #ifdef USE_IMAGE1D_INPUT
         COMPUTE_FLOAT4 in = CONVERT_COMPUTE_FLOAT4(RI_F(input, (k4 + input_offset) >> 2));
