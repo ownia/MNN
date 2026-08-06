@@ -140,11 +140,18 @@ ErrorCode RopeBufExecution::onEncode(const std::vector<Tensor*>& inputs, const s
     if (mKGamma) {
         buildOptions.emplace("-DK_NORM");
     }
-    unit.kernel = runtime->buildKernel("rope_buf", "rope_buf", buildOptions, mOpenCLBackend->getPrecision());
+    const bool useParallelNorm = mQGamma && mKGamma && runtime->getGpuType() == MALI && headDim == 128;
+    if (useParallelNorm) {
+        buildOptions.emplace("-DWGS=32");
+    }
+    const std::string kernelName = useParallelNorm ? "rope_buf_norm_parallel" : "rope_buf";
+    unit.kernel = runtime->buildKernel("rope_buf", kernelName, buildOptions, mOpenCLBackend->getPrecision());
     OPENCL_CHECK_KERNEL(unit.kernel);
     mMaxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(unit.kernel));
 
-    if (mQGamma || mKGamma) {
+    if (useParallelNorm) {
+        mGlobalWorkSize = {32, static_cast<uint32_t>(outerSize), static_cast<uint32_t>(fullHead)};
+    } else if (mQGamma || mKGamma) {
         mGlobalWorkSize = {1, static_cast<uint32_t>(outerSize), static_cast<uint32_t>(fullHead)};
     } else {
         mGlobalWorkSize = {static_cast<uint32_t>(workDim), static_cast<uint32_t>(outerSize),
@@ -178,9 +185,13 @@ ErrorCode RopeBufExecution::onEncode(const std::vector<Tensor*>& inputs, const s
     }
     MNN_CHECK_CL_SUCCESS(ret, "setArg RopeBufExecution");
 
-    mLocalWorkSize = localWS3DDefault(mGlobalWorkSize, mMaxWorkGroupSize, runtime, "rope_buf", unit.kernel,
-                                      mOpenCLBackend->getCLTuneLevel(), "rope_buf")
-                         .first;
+    if (useParallelNorm) {
+        mLocalWorkSize = {32, 1, 1};
+    } else {
+        mLocalWorkSize = localWS3DDefault(mGlobalWorkSize, mMaxWorkGroupSize, runtime, "rope_buf", unit.kernel,
+                                          mOpenCLBackend->getCLTuneLevel(), "rope_buf")
+                             .first;
+    }
 
     mOpenCLBackend->recordKernel3d(unit.kernel, mGlobalWorkSize, mLocalWorkSize);
 
