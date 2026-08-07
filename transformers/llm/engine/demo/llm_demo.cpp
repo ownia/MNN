@@ -9,6 +9,8 @@
 #define MNN_OPEN_TIME_TRACE
 #include <MNN/AutoTime.hpp>
 #include <MNN/expr/ExecutorScope.hpp>
+#include <algorithm>
+#include <cctype>
 #include <fstream>
 #include <sstream>
 #include <stdlib.h>
@@ -274,6 +276,23 @@ static int eval(Llm* llm, std::string prompt_file, int max_token_number) {
     return benchmark(llm, prompts, max_token_number);
 }
 
+static bool isAudioFile(const std::string& filename) {
+    const auto dot = filename.find_last_of('.');
+    if (dot == std::string::npos) {
+        return false;
+    }
+    auto extension = filename.substr(dot);
+    std::transform(extension.begin(), extension.end(), extension.begin(), [](unsigned char character) {
+        return static_cast<char>(std::tolower(character));
+    });
+    return extension == ".wav";
+}
+
+static int evalAudio(Llm* llm, const std::string& audio_file, int max_token_number) {
+    std::cout << "audio file is " << audio_file << std::endl;
+    return benchmark(llm, {"<audio>" + audio_file + "</audio>"}, max_token_number);
+}
+
 void chat(Llm* llm) {
     ChatMessages messages;
     messages.emplace_back("system", "You are a helpful assistant.");
@@ -301,7 +320,7 @@ void chat(Llm* llm) {
 }
 int main(int argc, const char* argv[]) {
     if (argc < 2) {
-        std::cout << "Usage: " << argv[0] << " config.json <prompt.txt>" << std::endl;
+        std::cout << "Usage: " << argv[0] << " config.json <prompt.txt|audio.wav>" << std::endl;
         return 0;
     }
 
@@ -353,5 +372,13 @@ int main(int argc, const char* argv[]) {
     llm->set_config(R"({
         "async":false
     })");
+    if (isAudioFile(prompt_file)) {
+#ifdef LLM_SUPPORT_AUDIO
+        return evalAudio(llm.get(), prompt_file, max_token_number);
+#else
+        MNN_ERROR("Audio input requires MNN_BUILD_AUDIO=ON\n");
+        return 1;
+#endif
+    }
     return eval(llm.get(), prompt_file, max_token_number);
 }
