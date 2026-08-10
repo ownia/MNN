@@ -219,6 +219,9 @@
             "RELU6"
         ]
     },
+    "convolution_im2col_pack_a.comp": {
+        "useFP16": true
+    },
     "convolutionint8.comp": {
         "useFP16": true,
         "macro": [

@@ -536,13 +536,19 @@ public:
                 }
             }
             const bool hasExternalQuantWeight = (convReal->external() != nullptr && convReal->external()->size() > 1);
+            const bool preferFloatIm2ColGemm = common->kernelX() == 3 && common->kernelY() == 3 &&
+                inputs.size() == 1 && inputs[0]->channel() >= 64 && outputCount >= 64;
             // For coop/int8 path, external quant weights should also keep int8 payload instead of being forced to float.
-            if ((quan->buffer() || hasExternalQuantWeight) && OpType_Convolution == op->type()) {
+            if ((quan->buffer() || hasExternalQuantWeight) && OpType_Convolution == op->type() &&
+                !preferFloatIm2ColGemm) {
                 quanWeight = ConvolutionCommon::load(op, backend, false, true);
             } else {
                 quanWeight = ConvolutionCommon::load(op, backend, true);
             }
-            if (quanWeight->weight.get() != nullptr) {
+            if (preferFloatIm2ColGemm && quanWeight->weightFloat.get() != nullptr) {
+                srcCount = quanWeight->weightFloat.size() / (outputCount * fh * fw);
+                source = quanWeight->weightFloat.get();
+            } else if (quanWeight->weight.get() != nullptr) {
                 useInt8Conv = true;
                 srcCount = inputs[0]->channel();
             } else {

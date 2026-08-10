@@ -7,6 +7,7 @@
 //
 
 #include "VulkanConvolutionImpl.hpp"
+#include "VulkanConvolutionIm2ColGemm.hpp"
 #include "core/Macro.h"
 #include "core/TensorUtils.hpp"
 #include "VulkanConvolution.hpp"
@@ -214,6 +215,15 @@ VulkanBasicExecution* VulkanConvolutionImpl::create(VulkanBackend* backend, cons
                                                          const std::vector<Tensor*>& inputs, const Tensor* output,
                                                          const float* weightPtr, const float* biasPtr, int ci, int co) {
     AUTOTIME;
+    const bool useIm2ColGemm = nullptr != weightPtr && inputs.size() == 1 && convOption->kernelX() == 3 &&
+        convOption->kernelY() == 3 && ci >= 64 && co >= 64;
+    if (useIm2ColGemm) {
+        auto execution = new VulkanConvolutionIm2ColGemm(backend, convOption, weightPtr, biasPtr, ci, co);
+        if (execution->valid()) {
+            return execution;
+        }
+        delete execution;
+    }
     return new VulkanConvolutionSlideWindows(backend, convOption, weightPtr, biasPtr, ci, co);
 }
 

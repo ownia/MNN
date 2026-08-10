@@ -1,0 +1,69 @@
+// Packs an NC4HW4 convolution input directly into gemm_m8n4's A layout.
+// Output A layout: [M/64, K/4, 64, 4].
+layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+layout(binding = 0) readonly buffer SrcBuffer {
+    FLOAT4 Src[];
+};
+
+layout(binding = 1) writeonly buffer DstBuffer {
+    FLOAT4 Dst[];
+};
+
+layout(push_constant) uniform PushConstants {
+    uint M;
+    uint K;
+    uint inputWidth;
+    uint inputHeight;
+    uint inputChannel4;
+    uint outputWidth;
+    uint outputHeight;
+    uint batch;
+    uint kernelWidth;
+    uint strideWidth;
+    uint strideHeight;
+    int padWidth;
+    int padHeight;
+    uint dilateWidth;
+    uint dilateHeight;
+} pc;
+
+void main() {
+    const uint k4 = gl_WorkGroupID.x;
+    const uint mOuter = gl_WorkGroupID.y;
+    const uint mIn64 = gl_LocalInvocationID.x;
+    const uint K4 = pc.K >> 2u;
+    if (k4 >= K4) {
+        return;
+    }
+
+    const uint m = (mOuter << 6u) + mIn64;
+    const uint dstIndex = (mOuter * K4 + k4) * 64u + mIn64;
+    if (m >= pc.M) {
+        Dst[dstIndex] = FLOAT4(FLOAT(0.0));
+        return;
+    }
+
+    const uint outputArea = pc.outputWidth * pc.outputHeight;
+    const uint batchIndex = m / outputArea;
+    const uint outputOffset = m - batchIndex * outputArea;
+    const uint outputY = outputOffset / pc.outputWidth;
+    const uint outputX = outputOffset - outputY * pc.outputWidth;
+
+    const uint kernelIndex = k4 / pc.inputChannel4;
+    const uint inputChannel4 = k4 - kernelIndex * pc.inputChannel4;
+    const uint kernelY = kernelIndex / pc.kernelWidth;
+    const uint kernelX = kernelIndex - kernelY * pc.kernelWidth;
+    const int inputX = int(outputX * pc.strideWidth + kernelX * pc.dilateWidth) - pc.padWidth;
+    const int inputY = int(outputY * pc.strideHeight + kernelY * pc.dilateHeight) - pc.padHeight;
+
+    if (inputX < 0 || inputX >= int(pc.inputWidth) || inputY < 0 || inputY >= int(pc.inputHeight)) {
+        Dst[dstIndex] = FLOAT4(FLOAT(0.0));
+        return;
+    }
+
+    const uint inputArea = pc.inputWidth * pc.inputHeight;
+    const uint srcIndex = inputChannel4 * pc.batch * inputArea + batchIndex * inputArea
+        + uint(inputY) * pc.inputWidth + uint(inputX);
+    Dst[dstIndex] = Src[srcIndex];
+}
