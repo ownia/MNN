@@ -3,6 +3,7 @@
 
 Examples:
     tools/script/opencl_profile_summary.py gpu_profile.log
+    tools/script/opencl_profile_summary.py optimized.log --compare baseline.log
     ./build_profile/llm_demo model_quant/config.json prompt.txt 50 2>&1 | \
         tools/script/opencl_profile_summary.py -
 
@@ -75,23 +76,120 @@ def print_summary(totals, batch_count, event_count, top):
     return 0
 
 
+def format_delta_us(value):
+    if value >= 1000.0 or value <= -1000.0:
+        return f"{value / 1000.0:+,.3f} ms"
+    return f"{value:+,.0f} us"
+
+
+def format_delta_percent(baseline, candidate):
+    if baseline <= 0.0:
+        return "n/a"
+    return f"{100.0 * (candidate - baseline) / baseline:+.2f}%"
+
+
+def print_comparison(baseline_profile, candidate_profile, baseline_path, candidate_path, top):
+    baseline_totals, baseline_batches, baseline_events = baseline_profile
+    candidate_totals, candidate_batches, candidate_events = candidate_profile
+    if baseline_events == 0:
+        print(f"No MNN GPU_PROFILE event lines found in baseline: {baseline_path}", file=sys.stderr)
+        return 1
+    if candidate_events == 0:
+        print(f"No MNN GPU_PROFILE event lines found in candidate: {candidate_path}", file=sys.stderr)
+        return 1
+
+    rows = []
+    for event_name in set(baseline_totals) | set(candidate_totals):
+        baseline_calls, baseline_total = baseline_totals.get(event_name, (0, 0.0))
+        candidate_calls, candidate_total = candidate_totals.get(event_name, (0, 0.0))
+        baseline_average = baseline_total / baseline_calls if baseline_calls else None
+        candidate_average = candidate_total / candidate_calls if candidate_calls else None
+        if baseline_average is None or candidate_average is None:
+            sort_key = max(baseline_average or 0.0, candidate_average or 0.0)
+        else:
+            sort_key = abs(candidate_average - baseline_average)
+        rows.append((event_name, baseline_calls, candidate_calls, baseline_average, candidate_average, sort_key))
+
+    rows.sort(key=lambda row: (-row[5], row[0]))
+    if top > 0:
+        rows = rows[:top]
+
+    baseline_total_us = sum(total for _, total in baseline_totals.values())
+    candidate_total_us = sum(total for _, total in candidate_totals.values())
+    name_width = max(len("Event"), *(len(row[0]) for row in rows))
+    calls_width = max(len("Calls"), *(len(f"{row[1]}/{row[2]}") for row in rows))
+    print("OpenCL GPU_PROFILE comparison")
+    print(f"Baseline:          {baseline_path}")
+    print(f"Candidate:         {candidate_path}")
+    print(f"Baseline batches:  {baseline_batches}")
+    print(f"Candidate batches: {candidate_batches}")
+    print(f"Baseline events:   {baseline_events}")
+    print(f"Candidate events:  {candidate_events}")
+    print(f"Baseline time:     {format_us(baseline_total_us)}")
+    print(f"Candidate time:    {format_us(candidate_total_us)}")
+    print(f"Total change:      {format_delta_us(candidate_total_us - baseline_total_us)} "
+          f"({format_delta_percent(baseline_total_us, candidate_total_us)})")
+    print("Per-event deltas compare average time per call; total time also reflects call-count changes.")
+    print()
+    print(
+        f"{'Event':<{name_width}}  {'Calls':>{calls_width}}  {'Baseline avg':>14}  "
+        f"{'Candidate avg':>14}  {'Delta':>12}  {'Delta %':>9}"
+    )
+    print(
+        f"{'-' * name_width}  {'-' * calls_width}  {'-' * 14}  {'-' * 14}  "
+        f"{'-' * 12}  {'-' * 9}"
+    )
+    for event_name, baseline_calls, candidate_calls, baseline_average, candidate_average, _ in rows:
+        calls = f"{baseline_calls}/{candidate_calls}"
+        if baseline_average is None or candidate_average is None:
+            baseline_text = format_us(baseline_average) if baseline_average is not None else "n/a"
+            candidate_text = format_us(candidate_average) if candidate_average is not None else "n/a"
+            delta_text = "n/a"
+            delta_percent = "n/a"
+        else:
+            baseline_text = format_us(baseline_average)
+            candidate_text = format_us(candidate_average)
+            delta_text = format_delta_us(candidate_average - baseline_average)
+            delta_percent = format_delta_percent(baseline_average, candidate_average)
+        print(
+            f"{event_name:<{name_width}}  {calls:>{calls_width}}  {baseline_text:>14}  "
+            f"{candidate_text:>14}  {delta_text:>12}  {delta_percent:>9}"
+        )
+    return 0
+
+
+def read_profile(path):
+    if path == "-":
+        return parse_profile(sys.stdin)
+    with open(path, encoding="utf-8", errors="replace") as log_file:
+        return parse_profile(log_file)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("log", help="GPU_PROFILE output file, or - to read stdin")
-    parser.add_argument("--top", type=int, default=0, help="Show only the top N events by total time; 0 shows all")
+    parser.add_argument("--compare", metavar="BASELINE_LOG", help="Compare LOG against a baseline profile log")
+    parser.add_argument(
+        "--top",
+        type=int,
+        default=0,
+        help="Show only the top N events by total time, or absolute average change with --compare; 0 shows all",
+    )
     args = parser.parse_args()
 
     if args.top < 0:
         parser.error("--top must be non-negative")
-
-    if args.log == "-":
-        return print_summary(*parse_profile(sys.stdin), args.top)
+    if args.log == "-" and args.compare == "-":
+        parser.error("LOG and --compare cannot both read from stdin")
 
     try:
-        with open(args.log, encoding="utf-8", errors="replace") as log_file:
-            return print_summary(*parse_profile(log_file), args.top)
+        candidate_profile = read_profile(args.log)
+        if args.compare is not None:
+            baseline_profile = read_profile(args.compare)
+            return print_comparison(baseline_profile, candidate_profile, args.compare, args.log, args.top)
+        return print_summary(*candidate_profile, args.top)
     except OSError as error:
-        print(f"Cannot read {args.log}: {error}", file=sys.stderr)
+        print(f"Cannot read {error.filename or args.log}: {error}", file=sys.stderr)
         return 1
 
 
