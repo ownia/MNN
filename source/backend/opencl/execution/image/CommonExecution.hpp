@@ -8,6 +8,8 @@
 
 #ifndef CommonExecution_hpp
 #define CommonExecution_hpp
+#include <string>
+
 #include "core/Execution.hpp"
 #include "core/Macro.h"
 #include "core/TensorUtils.hpp"
@@ -61,6 +63,7 @@ inline Execution* checkExeValid(Execution* exe) {
 
 struct Unit {
     std::shared_ptr<KernelWrap> kernel;
+    std::string kernelName;
     cl::NDRange globalWorkSize;
     cl::NDRange localWorkSize;
 };

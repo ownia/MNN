@@ -594,7 +594,8 @@ void ConvBufLowMemoryExecution::tuneGeneralCaseLowMemory(Tensor* input, Tensor* 
         buildOption.emplace("-DINPUT_CHANNEL_BOUNDARY_PROTECT");
     }
     unit.kernel = mOpenCLBackend->getOpenCLRuntime()->buildKernel("conv_2d_int_buf", kernelName[min_index], buildOption,
-                                                                  mOpenCLBackend->getPrecision());
+                                                                   mOpenCLBackend->getPrecision());
+    unit.kernelName = kernelName[min_index];
 
     uint32_t idx = 0;
     cl_int ret = CL_SUCCESS;
@@ -690,7 +691,8 @@ void ConvBufLowMemoryExecution::useFPWeightGemmLowMemory(Tensor* input, Tensor* 
         mGlobalWorkSize = {static_cast<uint32_t>(UP_DIV(mResource->mInputChannel, channelPack)),
                            static_cast<uint32_t>(UP_DIV(mResource->mOutputChannel, 8))};
         unit.kernel = runtime->buildKernel("gemm_conv1x1_buf", "inverse_quant_weight", buildOption,
-                                           mOpenCLBackend->getPrecision());
+                           mOpenCLBackend->getPrecision());
+        unit.kernelName = "inverse_quant_weight";
         uint32_t maxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(unit.kernel));
         uint32_t idx = 0;
         cl_int ret = CL_SUCCESS;
@@ -727,7 +729,8 @@ void ConvBufLowMemoryExecution::useFPWeightGemmLowMemory(Tensor* input, Tensor* 
         int m_pack = 4;
         mGlobalWorkSize = {static_cast<uint32_t>(alignM / m_pack), static_cast<uint32_t>(alignK / 4)};
         unit.kernel = mOpenCLBackend->getOpenCLRuntime()->buildKernel("gemm_buf", "transpose_pad", buildOptions,
-                                                                      mOpenCLBackend->getPrecision());
+                                          mOpenCLBackend->getPrecision());
+        unit.kernelName = "transpose_pad";
         uint32_t maxWorkGroupSize =
             static_cast<uint32_t>(mOpenCLBackend->getOpenCLRuntime()->getMaxWorkGroupSize(unit.kernel));
 
@@ -781,6 +784,7 @@ void ConvBufLowMemoryExecution::useFPWeightGemmLowMemory(Tensor* input, Tensor* 
             auto kernel = runtime->buildKernel("gemm_buf", "transpose_bias", option, mOpenCLBackend->getPrecision());
         }
         unit.kernel = runtime->buildKernel("gemm_buf", "transpose_bias", buildOptions, mOpenCLBackend->getPrecision());
+        unit.kernelName = "transpose_bias";
         uint32_t maxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(unit.kernel));
 
         mGlobalWorkSize = {static_cast<uint32_t>(UP_DIV(M, pack_m)), static_cast<uint32_t>(UP_DIV(N, 4))};
@@ -941,6 +945,7 @@ void ConvBufLowMemoryExecution::tuneGemvLowMemory(Tensor* input, Tensor* output)
     mGlobalWorkSize = {static_cast<uint32_t>(local_size), static_cast<uint32_t>(UP_DIV(outChannel, 8))};
     unit.kernel = mOpenCLBackend->getOpenCLRuntime()->buildKernel("gemv_conv1x1_buf", "gemv_conv_c8_buf", buildOption,
                                                                   mOpenCLBackend->getPrecision());
+    unit.kernelName = "gemv_conv_c8_buf-ic" + std::to_string(inputChannels) + "-oc" + std::to_string(outChannel);
     uint32_t maxWorkGroupSize =
         static_cast<uint32_t>(mOpenCLBackend->getOpenCLRuntime()->getMaxWorkGroupSize(unit.kernel));
     uint32_t idx = 0;
@@ -1062,6 +1067,7 @@ void ConvBufLowMemoryExecution::tuneGemmLowMemory(Tensor* input, Tensor* output)
             auto& unit = mUnits[0];
             unit.kernel = mOpenCLBackend->getOpenCLRuntime()->buildKernel("gemm_conv1x1_buf", "gemm_c4nhw4_to_nhwc",
                                                                           buildOption, mOpenCLBackend->getPrecision());
+            unit.kernelName = "gemm_c4nhw4_to_nhwc";
             uint32_t maxWorkGroupSize =
                 static_cast<uint32_t>(mOpenCLBackend->getOpenCLRuntime()->getMaxWorkGroupSize(unit.kernel));
 
@@ -1147,6 +1153,7 @@ void ConvBufLowMemoryExecution::tuneGemmLowMemory(Tensor* input, Tensor* output)
                                static_cast<uint32_t>(UP_DIV(global_y, 4))};
             unit.kernel = mOpenCLBackend->getOpenCLRuntime()->buildKernel("gemv_conv1x1_buf", "gemv_conv_c8_buf",
                                                                           buildOption, mOpenCLBackend->getPrecision());
+            unit.kernelName = "gemv_conv_c8_buf";
             uint32_t maxWorkGroupSize =
                 static_cast<uint32_t>(mOpenCLBackend->getOpenCLRuntime()->getMaxWorkGroupSize(unit.kernel));
             uint32_t idx = 0;
@@ -1181,6 +1188,7 @@ void ConvBufLowMemoryExecution::tuneGemmLowMemory(Tensor* input, Tensor* output)
             auto& unit = mUnits[2];
             unit.kernel = mOpenCLBackend->getOpenCLRuntime()->buildKernel("gemm_conv1x1_buf", "gemm_nhwc_to_c4nhw4",
                                                                           buildOption, mOpenCLBackend->getPrecision());
+            unit.kernelName = "gemm_nhwc_to_c4nhw4";
             uint32_t maxWorkGroupSize =
                 static_cast<uint32_t>(mOpenCLBackend->getOpenCLRuntime()->getMaxWorkGroupSize(unit.kernel));
             mGlobalWorkSize = {static_cast<uint32_t>(UP_DIV(global_y, 4)),
@@ -1298,6 +1306,8 @@ void ConvBufLowMemoryExecution::tuneGemmLowMemory(Tensor* input, Tensor* output)
             buildOption.emplace("-DUSE_IMAGE1D_INPUT");
     }
     unit.kernel = mOpenCLBackend->getOpenCLRuntime()->buildKernel("gemm_conv1x1_buf", kernelName, buildOption, mOpenCLBackend->getPrecision());
+    unit.kernelName = kernelName + "-m" + std::to_string(global_y) + "-n" + std::to_string(outChannel) +
+                      "-k" + std::to_string(inputChannels);
     uint32_t maxWorkGroupSize = static_cast<uint32_t>(mOpenCLBackend->getOpenCLRuntime()->getMaxWorkGroupSize(unit.kernel));
 
     mGlobalWorkSize = {static_cast<uint32_t>(UP_DIV(global_y, batchTile)),
@@ -1566,7 +1576,23 @@ ErrorCode ConvBufLowMemoryExecution::onExecute(const std::vector<Tensor*>& input
 #endif
     auto runtime = mOpenCLBackend->getOpenCLRuntime();
 #ifdef ENABLE_OPENCL_TIME_PROFILER
-    int idx = 0;
+    auto profileName = [](const Unit& unit) {
+        std::string name = "Convolution-" + unit.kernelName + "-gws";
+        for (size_t i = 0; i < unit.globalWorkSize.dimensions(); ++i) {
+            if (i > 0) {
+                name += "x";
+            }
+            name += std::to_string(unit.globalWorkSize.get()[i]);
+        }
+        name += "-lws";
+        for (size_t i = 0; i < unit.localWorkSize.dimensions(); ++i) {
+            if (i > 0) {
+                name += "x";
+            }
+            name += std::to_string(unit.localWorkSize.get()[i]);
+        }
+        return name;
+    };
 #else
     if (mOpenCLBackend->isUseRecordQueue()) {
         mOpenCLBackend->addRecord(mRecording, mOpRecordUpdateInfo);
@@ -1583,7 +1609,7 @@ ErrorCode ConvBufLowMemoryExecution::onExecute(const std::vector<Tensor*>& input
             cl::Event event;
             res = runtime->commandQueue().enqueueNDRangeKernel(unit.kernel->get(), cl::NullRange, unit.globalWorkSize,
                                                                unit.localWorkSize, nullptr, &event);
-            runtime->pushEvent({EnumNameOpType(mOpType) + std::to_string(idx++), event});
+            runtime->pushEvent({profileName(unit), event});
 #else
             res = runtime->commandQueue().enqueueNDRangeKernel(unit.kernel->get(), cl::NullRange, unit.globalWorkSize,
                                                                unit.localWorkSize);
@@ -1600,7 +1626,7 @@ ErrorCode ConvBufLowMemoryExecution::onExecute(const std::vector<Tensor*>& input
             cl::Event event;
             res = runtime->commandQueue().enqueueNDRangeKernel(unit.kernel->get(), cl::NullRange, unit.globalWorkSize,
                                                                unit.localWorkSize, nullptr, &event);
-            runtime->pushEvent({EnumNameOpType(mOpType) + std::to_string(idx++), event});
+            runtime->pushEvent({profileName(unit), event});
 #else
             res = runtime->commandQueue().enqueueNDRangeKernel(unit.kernel->get(), cl::NullRange, unit.globalWorkSize,
                                                                unit.localWorkSize);
@@ -1613,7 +1639,7 @@ ErrorCode ConvBufLowMemoryExecution::onExecute(const std::vector<Tensor*>& input
             cl::Event event;
             res = runtime->commandQueue().enqueueNDRangeKernel(unit.kernel->get(), cl::NullRange, unit.globalWorkSize,
                                                                unit.localWorkSize, nullptr, &event);
-            runtime->pushEvent({EnumNameOpType(mOpType) + std::to_string(idx++), event});
+            runtime->pushEvent({profileName(unit), event});
 #else
             res = runtime->commandQueue().enqueueNDRangeKernel(unit.kernel->get(), cl::NullRange, unit.globalWorkSize,
                                                                unit.localWorkSize);
