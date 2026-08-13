@@ -149,6 +149,16 @@ roofline 说 memory-bound 时，别急着认定"减少 DRAM 流量"就能提速�
 
 **典型案例**：int4 反量化公式 `wei = (nibble - 8) * scale + offset`，将 `-8` 预折叠进 `offset`（host 端做 `offset_new = offset - 8 * scale`），kernel 中简化为 `wei = nibble * scale + offset_new`
 
+**编译期布局特化**：若 inner loop 用 kernel 参数 `blockDim` 做重复除法，而 host 在 build 时已知它是 2 的幂，把 `log2(blockDim)` 作为 build option 传入，shader 用 shift；其余尺寸保留除法 fallback：
+```c
+#ifdef BLOCK_DIM_SHIFT
+#define BLOCK_INDEX(value) ((value) >> BLOCK_DIM_SHIFT)
+#else
+#define BLOCK_INDEX(value) ((value) / blockDim)
+#endif
+```
+运行时参数未必被移动端 OpenCL 编译器常量折叠，因此这个小改动能消掉热循环整数除法。只在 `blockDim > 0` 且是 2 的幂时启用，并确保 tune kernel 和最终 kernel 都带同一 build option。Mali Q4 GEMV 的高频 shape 实测约 +2.7-4.0%；超宽 output tile 可能无收益，必须分 shape 测量。
+
 **注意事项**：
 - 注意 `originOffset` 是否已折进 bias。模型导出器写出的 alpha 中 **originOffset 已折进 bias**，shader 解出 signed 权重后做 `signed_w * scale + b` 即可。**不要**再做 `(unsigned - offset) * scale + raw_b`，会重复折一次
 - 每次消除的运算看似微小，但乘以百万级 weight 就很可观
@@ -384,6 +394,10 @@ host `buildOptions` 传入的宏名与 .cl 里的 `#ifdef` 不一致（如 `QUAN
 ### 陷阱 P：Adreno 老编译器 inline function 不稳定
 
 重复展开的逻辑（如 int4 unpack）用 `#define` macro 展开，**不要用 inline function**——Adreno 老编译器对 inline 的稳定性差，可能生成错误代码或编译失败。
+
+### 陷阱 Q：host reciprocal 不等于 shader vector division
+
+不要仅凭代数等价把反量化中的 `scale / coef` 改成 host 侧传入 `1 / coef` 后的 `scale * invCoef`。host float reciprocal 与 device vector divide 的舍入、溢出路径不同，低比特模型可能因此改变 token 轨迹或在后续网络中失效。此类改动必须用冻结 GPU baseline 的逐 token 贪心对比验证；没有完全一致的结果就保留 shader 除法。
 
 ---
 

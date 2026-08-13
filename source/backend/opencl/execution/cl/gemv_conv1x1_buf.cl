@@ -62,6 +62,11 @@ __constant sampler_t SAMPLER = CLK_NORMALIZED_COORDS_FALSE | CLK_ADDRESS_CLAMP |
     wei.s7 = CONVERT_FLOAT(((int)(((b1 >> 0) & 3) | (((h >> 0) & 1) << 2)))); \
     wei = wei * scale + offset;
 
+#ifdef GEMV_BLOCK_DIM_SHIFT
+#define GEMV_BLOCK_INDEX(value) ((value) >> GEMV_BLOCK_DIM_SHIFT)
+#else
+#define GEMV_BLOCK_INDEX(value) ((value) / blockDim)
+#endif
 
 #if WGS >= 8
 __kernel void gemv_conv_c8_buf(GLOBAL_SIZE_DIM_3
@@ -142,11 +147,11 @@ __kernel void gemv_conv_c8_buf(GLOBAL_SIZE_DIM_3
         COMPUTE_FLOAT16 scale, offset;
         {
             #ifdef ASYMMETRIC
-            COMPUTE_FLOAT16 scaleOffset = CONVERT_COMPUTE_FLOAT16(convert_float16(vload16(0, dequantScaleOffset + oc8 * 2 + (k2 / blockDim) * dstChannelC4 * 8)) / coef);
+            COMPUTE_FLOAT16 scaleOffset = CONVERT_COMPUTE_FLOAT16(convert_float16(vload16(0, dequantScaleOffset + oc8 * 2 + (GEMV_BLOCK_INDEX(k2)) * dstChannelC4 * 8)) / coef);
             scale = (COMPUTE_FLOAT16)(scaleOffset.s02468ace, scaleOffset.s02468ace);
             offset = (COMPUTE_FLOAT16)(scaleOffset.s13579bdf, scaleOffset.s13579bdf);
             #else
-            COMPUTE_FLOAT8 scaleOffset = CONVERT_COMPUTE_FLOAT8(convert_float8(vload8(0, dequantScaleOffset + oc8 + (k2 / blockDim) * dstChannelC4 * 4)) / coef);
+            COMPUTE_FLOAT8 scaleOffset = CONVERT_COMPUTE_FLOAT8(convert_float8(vload8(0, dequantScaleOffset + oc8 + (GEMV_BLOCK_INDEX(k2)) * dstChannelC4 * 4)) / coef);
             scale = (COMPUTE_FLOAT16)(scaleOffset, scaleOffset);
             offset = 0;
             #endif
@@ -181,7 +186,7 @@ __kernel void gemv_conv_c8_buf(GLOBAL_SIZE_DIM_3
         #else
         int k4 = j << 2;
 #if QUANT_BIT == 4 && defined(GEMV_BLOCK_SCALE_REUSE)
-        const int currentBlock = k4 / blockDim;
+        const int currentBlock = GEMV_BLOCK_INDEX(k4);
         if (cachedBlock != currentBlock) {
             #ifdef ASYMMETRIC
             COMPUTE_FLOAT16 scaleOffset = CONVERT_COMPUTE_FLOAT16(
@@ -199,12 +204,14 @@ __kernel void gemv_conv_c8_buf(GLOBAL_SIZE_DIM_3
         #ifdef ASYMMETRIC
         COMPUTE_FLOAT8 scale, offset;
         {
-            COMPUTE_FLOAT16 scaleOffset = CONVERT_COMPUTE_FLOAT16(convert_float16(vload16(0, dequantScaleOffset + oc8 * 2 + (k4 / blockDim) * dstChannelC4 * 8)) / coef);
+            COMPUTE_FLOAT16 scaleOffset = CONVERT_COMPUTE_FLOAT16(
+                convert_float16(vload16(0, dequantScaleOffset + oc8 * 2 + (GEMV_BLOCK_INDEX(k4)) * dstChannelC4 * 8)) / coef);
             scale = scaleOffset.s02468ace;
             offset = scaleOffset.s13579bdf;
         }
         #else
-        COMPUTE_FLOAT8 scale = CONVERT_COMPUTE_FLOAT8(convert_float8(vload8(0, dequantScaleOffset + oc8 + (k4 / blockDim) * dstChannelC4 * 4)) / coef);
+        COMPUTE_FLOAT8 scale = CONVERT_COMPUTE_FLOAT8(
+            convert_float8(vload8(0, dequantScaleOffset + oc8 + (GEMV_BLOCK_INDEX(k4)) * dstChannelC4 * 4)) / coef);
         #if QUANT_BIT == 2
         COMPUTE_FLOAT8 offset = (COMPUTE_FLOAT8)(-2) * scale;
         #elif QUANT_BIT == 3
@@ -361,11 +368,11 @@ __kernel void gemv_conv_c8_buf(GLOBAL_SIZE_DIM_3
         COMPUTE_FLOAT16 scale, offset;
         {
             #ifdef ASYMMETRIC
-            COMPUTE_FLOAT16 scaleOffset = CONVERT_COMPUTE_FLOAT16(convert_float16(vload16(0, dequantScaleOffset + oc8 * 2 + (k2 / blockDim) * dstChannelC4 * 8)) / coef);
+            COMPUTE_FLOAT16 scaleOffset = CONVERT_COMPUTE_FLOAT16(convert_float16(vload16(0, dequantScaleOffset + oc8 * 2 + (GEMV_BLOCK_INDEX(k2)) * dstChannelC4 * 8)) / coef);
             scale = (COMPUTE_FLOAT16)(scaleOffset.s02468ace, scaleOffset.s02468ace);
             offset = (COMPUTE_FLOAT16)(scaleOffset.s13579bdf, scaleOffset.s13579bdf);
             #else
-            COMPUTE_FLOAT8 scaleOffset = CONVERT_COMPUTE_FLOAT8(convert_float8(vload8(0, dequantScaleOffset + oc8 + (k2 / blockDim) * dstChannelC4 * 4)) / coef);
+            COMPUTE_FLOAT8 scaleOffset = CONVERT_COMPUTE_FLOAT8(convert_float8(vload8(0, dequantScaleOffset + oc8 + (GEMV_BLOCK_INDEX(k2)) * dstChannelC4 * 4)) / coef);
             scale = (COMPUTE_FLOAT16)(scaleOffset, scaleOffset);
             offset = 0;
             #endif
@@ -383,12 +390,14 @@ __kernel void gemv_conv_c8_buf(GLOBAL_SIZE_DIM_3
         #ifdef ASYMMETRIC
         COMPUTE_FLOAT8 scale, offset;
         {
-            COMPUTE_FLOAT16 scaleOffset = CONVERT_COMPUTE_FLOAT16(convert_float16(vload16(0, dequantScaleOffset + oc8 * 2 + (k4 / blockDim) * dstChannelC4 * 8)) / coef);
+            COMPUTE_FLOAT16 scaleOffset = CONVERT_COMPUTE_FLOAT16(
+                convert_float16(vload16(0, dequantScaleOffset + oc8 * 2 + (GEMV_BLOCK_INDEX(k4)) * dstChannelC4 * 8)) / coef);
             scale = scaleOffset.s02468ace;
             offset = scaleOffset.s13579bdf;
         }
         #else
-        COMPUTE_FLOAT8 scale = CONVERT_COMPUTE_FLOAT8(convert_float8(vload8(0, dequantScaleOffset + oc8 + (k4 / blockDim) * dstChannelC4 * 4)) / coef);
+        COMPUTE_FLOAT8 scale = CONVERT_COMPUTE_FLOAT8(
+            convert_float8(vload8(0, dequantScaleOffset + oc8 + (GEMV_BLOCK_INDEX(k4)) * dstChannelC4 * 4)) / coef);
         #if QUANT_BIT == 2
         COMPUTE_FLOAT8 offset = (COMPUTE_FLOAT8)(-2) * scale;
         #elif QUANT_BIT == 3
@@ -629,12 +638,14 @@ __kernel void gemv_conv_c8_buf(GLOBAL_SIZE_DIM_3
         #ifdef ASYMMETRIC
         COMPUTE_FLOAT8 scale, offset;
         {
-            COMPUTE_FLOAT16 scaleOffset = CONVERT_COMPUTE_FLOAT16(convert_float16(vload16(0, dequantScaleOffset + oc8 * 2 + i * dstChannelC4 * 8)) / coef);
+            COMPUTE_FLOAT16 scaleOffset = CONVERT_COMPUTE_FLOAT16(
+                convert_float16(vload16(0, dequantScaleOffset + oc8 * 2 + i * dstChannelC4 * 8)) / coef);
             scale = scaleOffset.s02468ace;
             offset = scaleOffset.s13579bdf;
         }
         #else
-        COMPUTE_FLOAT8 scale = CONVERT_COMPUTE_FLOAT8(convert_float8(vload8(0, dequantScaleOffset + oc8 + i * dstChannelC4 * 4)) / coef);
+        COMPUTE_FLOAT8 scale = CONVERT_COMPUTE_FLOAT8(
+            convert_float8(vload8(0, dequantScaleOffset + oc8 + i * dstChannelC4 * 4)) / coef);
         #if QUANT_BIT == 2
         COMPUTE_FLOAT8 offset = (COMPUTE_FLOAT8)(-2) * scale;
         #elif QUANT_BIT == 3

@@ -836,10 +836,22 @@ void ConvBufLowMemoryExecution::tuneGemvLowMemory(Tensor* input, Tensor* output)
     const bool hasBlockScaleReuseCandidate =
         mResource->mNumQuantBit == 4 && useLocalMem && inputChannels == 1024 && outChannel == 3072 &&
         blockNum == 8 && blockDim == 128;
+    const bool hasBlockDimShiftCandidate =
+        mResource->mNumQuantBit == 4 && blockDim > 0 && (blockDim & (blockDim - 1)) == 0;
+    int blockDimShift = 0;
+    if (hasBlockDimShiftCandidate) {
+        for (int remainingBlockDim = blockDim; remainingBlockDim > 1; remainingBlockDim >>= 1) {
+            ++blockDimShift;
+        }
+    }
     std::string info = std::to_string(inputChannels) + "_" + std::to_string(outChannel);
     std::set<std::string> buildOption = mResource->mBuildOptions;
     if (hasBlockScaleReuseCandidate) {
         info += "_block_scale_reuse";
+    }
+    if (hasBlockDimShiftCandidate) {
+        buildOption.emplace("-DGEMV_BLOCK_DIM_SHIFT=" + std::to_string(blockDimShift));
+        info += "_block_shift" + std::to_string(blockDimShift);
     }
     int inputChannelLeaves = 0;
     if (mResource->mNumQuantBit == 4 || mResource->mNumQuantBit == 3 || mResource->mNumQuantBit == 2) {
