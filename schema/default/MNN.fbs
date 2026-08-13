@@ -196,6 +196,7 @@ enum OpType : int {
     GroupNorm = 304,
     LinearAttention = 305,
     RoPE = 306,
+    SplitSiLU = 307,
 
     Extra = 512,
     // quantization

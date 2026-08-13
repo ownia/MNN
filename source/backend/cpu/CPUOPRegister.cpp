@@ -79,6 +79,7 @@ extern void ___CPUTextureCreator__OpType_Texture__();
 #ifdef MNN_SUPPORT_TRANSFORMER_FUSE
 extern void ___CPUAttentionCreator__OpType_Attention__();
 extern void ___CPULinearAttentionCreator__OpType_LinearAttention__();
+extern void ___CPUSplitSiLUCreator__OpType_SplitSiLU__();
 #endif
 void registerCPUOps() {
     ___CPUCropAndResizeCreator__OpType_CropAndResize__();
@@ -159,6 +160,7 @@ void registerCPUOps() {
 #ifdef MNN_SUPPORT_TRANSFORMER_FUSE
     ___CPUAttentionCreator__OpType_Attention__();
     ___CPULinearAttentionCreator__OpType_LinearAttention__();
+    ___CPUSplitSiLUCreator__OpType_SplitSiLU__();
 #endif
 }
 } // namespace MNN

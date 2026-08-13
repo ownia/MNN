@@ -30,6 +30,36 @@ class SplitGeLUSizeComputer : public SizeComputer {
     }
 };
 
+class SplitSiLUSizeComputer : public SizeComputer {
+public:
+    virtual bool onComputeSize(const MNN::Op* op, const std::vector<Tensor*>& inputs,
+                               const std::vector<Tensor*>& outputs) const override {
+        MNN_ASSERT(inputs.size() == 1);
+        MNN_ASSERT(outputs.size() == 1);
+        auto input0 = inputs[0], output0 = outputs[0];
+        const bool isC4 = input0->buffer().dimensions == 4 &&
+                          TensorUtils::getDescribe(input0)->dimensionFormat == MNN_DATA_FORMAT_NC4HW4;
+        MNN_ASSERT(input0->buffer().dimensions == 3 || isC4);
+        if (isC4) {
+            MNN_ASSERT(input0->buffer().dim[1].extent % 2 == 0);
+            output0->buffer().dimensions = 4;
+            for (int i = 0; i < 4; ++i) {
+                output0->buffer().dim[i].extent = input0->buffer().dim[i].extent;
+            }
+            output0->buffer().dim[1].extent /= 2;
+        } else {
+            MNN_ASSERT(input0->buffer().dim[2].extent % 2 == 0);
+            output0->buffer().dimensions = 3;
+            output0->buffer().dim[0].extent = input0->buffer().dim[0].extent;
+            output0->buffer().dim[1].extent = input0->buffer().dim[1].extent;
+            output0->buffer().dim[2].extent = input0->buffer().dim[2].extent / 2;
+        }
+        output0->buffer().type = input0->buffer().type;
+        TensorUtils::getDescribe(output0)->dimensionFormat = TensorUtils::getDescribe(input0)->dimensionFormat;
+        return true;
+    }
+};
+
 class SeqLen2SpatialSizeComputer : public SizeComputer {
     virtual bool onComputeSize(const MNN::Op* op, const std::vector<Tensor*>& inputs,
                                const std::vector<Tensor*>& outputs) const override {
@@ -48,6 +78,7 @@ class SeqLen2SpatialSizeComputer : public SizeComputer {
 };
 
 REGISTER_SHAPE_INPUTS_TRANSFORMER_FUSE(SplitGeLUSizeComputer, OpType_SplitGeLU);
+REGISTER_SHAPE_INPUTS_TRANSFORMER_FUSE(SplitSiLUSizeComputer, OpType_SplitSiLU);
 REGISTER_SHAPE_INPUTS_TRANSFORMER_FUSE(SeqLen2SpatialSizeComputer, OpType_SeqLen2Spatial);
 
 } // namespace MNN

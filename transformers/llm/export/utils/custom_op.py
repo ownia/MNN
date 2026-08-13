@@ -33,6 +33,24 @@ class FakeLinear(torch.nn.Module):
     def forward(self, x):
         return FakeLinearOp.apply(x, self.in_features, self.out_features, self.has_bias, self.name)
 
+class SplitSiLUOp(torch.autograd.Function):
+    @staticmethod
+    def symbolic(g, input):
+        from torch.onnx.symbolic_helper import _get_tensor_sizes
+        output_sizes = list(_get_tensor_sizes(input))
+        output_sizes[-1] //= 2
+        output_type = input.type().with_sizes(output_sizes)
+        return g.op("LlmExporter::SplitSiLU", input).setType(output_type)
+
+    @staticmethod
+    def forward(ctx, input):
+        gate, up = input.chunk(2, dim=-1)
+        return F.silu(gate) * up
+
+class SplitSiLU(torch.nn.Module):
+    def forward(self, x):
+        return SplitSiLUOp.apply(x)
+
 class FusedAttentionOp(torch.autograd.Function):
     @staticmethod
     def symbolic(g, query, key, value, attention_mask, output_dim, kv_cache, name, layer_index,

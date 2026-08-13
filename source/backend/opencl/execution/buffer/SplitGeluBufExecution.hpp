@@ -24,6 +24,7 @@ public:
 
 private:
     OpenCLBackend *mOpenCLBackend;
+    bool mIsSiLU = false;
     float mFDiv{};
     float mFAdd{};
     float mFMul{};

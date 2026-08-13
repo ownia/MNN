@@ -443,6 +443,10 @@ class LlmExporter(torch.nn.Module):
                 is_moe = hasattr(self.model.blocks[i].mlp, 'is_moe') and self.model.blocks[i].mlp.is_moe
                 if is_moe:
                     self.model.blocks[i].mlp.export_moe = True
+                elif self.mnn_converter is not None and getattr(self.args, 'transformer_fuse', False):
+                    fuse_split_silu = getattr(self.model.blocks[i].mlp, 'fuse_split_silu', None)
+                    if callable(fuse_split_silu):
+                        fuse_split_silu()
                 for name, child in self.model.blocks[i].self_attn.named_children():
                     if isinstance(child, torch.nn.Linear):
                         setattr(self.model.blocks[i].self_attn, name, build_faker(child, f'/layers.{i}/self_attn/{name}/Linear'))

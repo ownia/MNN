@@ -4,7 +4,7 @@ import torch.nn.functional as F
 from typing import Optional, Tuple
 
 from .model_mapper import ModelMapper
-from .custom_op import FusedAttention, FusedRoPE, MoE, FusedLinearAttention
+from .custom_op import FusedAttention, FusedRoPE, MoE, FusedLinearAttention, SplitSiLU
 
 class Embedding(torch.nn.Module):
     def __init__(self, embed, config):
@@ -1154,6 +1154,64 @@ class Qwen3Expert(torch.nn.Module):
         out = self.down_proj_linear(up * self.act_fn(gate))
         return out
 
+
+class SplitSiLUMlp(torch.nn.Module):
+    @staticmethod
+    def is_compatible(mlp):
+        gate_proj = getattr(mlp, 'gate_proj', None)
+        up_proj = getattr(mlp, 'up_proj', None)
+        down_proj = getattr(mlp, 'down_proj', None)
+        if not all(isinstance(proj, torch.nn.Linear) for proj in (gate_proj, up_proj, down_proj)):
+            return False
+        if gate_proj.in_features != up_proj.in_features or gate_proj.out_features != up_proj.out_features:
+            return False
+        if down_proj.in_features != gate_proj.out_features:
+            return False
+        if (gate_proj.bias is None) != (up_proj.bias is None):
+            return False
+        act_fn = getattr(mlp, 'act_fn', None)
+        act_name = getattr(act_fn, '__name__', act_fn.__class__.__name__).lower()
+        return isinstance(act_fn, torch.nn.SiLU) or act_name in ('silu', 'siluactivation')
+
+    def __init__(self, mlp):
+        super().__init__()
+        self.gate_proj = mlp.gate_proj
+        self.up_proj = mlp.up_proj
+        self.down_proj = mlp.down_proj
+        self.act_fn = mlp.act_fn
+        self.use_split_silu = False
+
+    def fuse_split_silu(self):
+        if self.use_split_silu:
+            return False
+
+        gate_size = self.gate_proj.out_features
+        gate_up_proj = torch.nn.Linear(
+            self.gate_proj.in_features,
+            gate_size + self.up_proj.out_features,
+            bias=self.gate_proj.bias is not None,
+            device=self.gate_proj.weight.device,
+            dtype=self.gate_proj.weight.dtype,
+        )
+        with torch.no_grad():
+            gate_up_proj.weight[:gate_size].copy_(self.gate_proj.weight)
+            gate_up_proj.weight[gate_size:].copy_(self.up_proj.weight)
+            if self.gate_proj.bias is not None:
+                gate_up_proj.bias[:gate_size].copy_(self.gate_proj.bias)
+                gate_up_proj.bias[gate_size:].copy_(self.up_proj.bias)
+        self.gate_up_proj = gate_up_proj
+        self.split_silu = SplitSiLU()
+        self.use_split_silu = True
+        del self.gate_proj
+        del self.up_proj
+        return True
+
+    def forward(self, hidden_states: torch.Tensor):
+        if self.use_split_silu:
+            return self.down_proj(self.split_silu(self.gate_up_proj(hidden_states)))
+        return self.down_proj(self.act_fn(self.gate_proj(hidden_states)) * self.up_proj(hidden_states))
+
+
 class Mlp(torch.nn.Module):
     def __init__(self, mlp, mapper, layer_id):
         super().__init__()
@@ -1161,6 +1219,7 @@ class Mlp(torch.nn.Module):
         ModelMapper.do_map(self, mlp, mapper['mlp'])
         self.is_moe = hasattr(self, 'experts')
         self.export_moe = False
+        self.use_split_silu = False
         self.custom_moe = MoE(self.num_experts, self.top_k, layer_id)
         if isinstance(self.experts, torch.nn.ModuleList):
             self.moe_type = 'qwen3_moe'
@@ -1208,8 +1267,47 @@ class Mlp(torch.nn.Module):
             self.experts = new_experts_list
             del self.router
 
+    def fuse_split_silu(self):
+        if self.is_moe or self.use_split_silu:
+            return False
+        gate_proj = getattr(self, 'gate_proj', None)
+        up_proj = getattr(self, 'up_proj', None)
+        if not isinstance(gate_proj, torch.nn.Linear) or not isinstance(up_proj, torch.nn.Linear):
+            return False
+        if gate_proj.in_features != up_proj.in_features or gate_proj.out_features != up_proj.out_features:
+            return False
+        if (gate_proj.bias is None) != (up_proj.bias is None):
+            return False
+        act_fn = getattr(self, 'act_fn', None)
+        act_name = getattr(act_fn, '__name__', act_fn.__class__.__name__).lower()
+        if not isinstance(act_fn, torch.nn.SiLU) and act_name not in ('silu', 'siluactivation'):
+            return False
+
+        gate_size = gate_proj.out_features
+        gate_up_proj = torch.nn.Linear(
+            gate_proj.in_features,
+            gate_size + up_proj.out_features,
+            bias=gate_proj.bias is not None,
+            device=gate_proj.weight.device,
+            dtype=gate_proj.weight.dtype,
+        )
+        with torch.no_grad():
+            gate_up_proj.weight[:gate_size].copy_(gate_proj.weight)
+            gate_up_proj.weight[gate_size:].copy_(up_proj.weight)
+            if gate_proj.bias is not None:
+                gate_up_proj.bias[:gate_size].copy_(gate_proj.bias)
+                gate_up_proj.bias[gate_size:].copy_(up_proj.bias)
+        self.gate_up_proj = gate_up_proj
+        self.split_silu = SplitSiLU()
+        self.use_split_silu = True
+        del self.gate_proj
+        del self.up_proj
+        return True
+
     def forward(self, hidden_states: torch.Tensor):
         if not self.is_moe:
+            if self.use_split_silu:
+                return self.down_proj(self.split_silu(self.gate_up_proj(hidden_states)))
             # general Mlp
             return self.down_proj(self.act_fn(self.gate_proj(hidden_states)) * self.up_proj(hidden_states))
 
@@ -1324,6 +1422,8 @@ class Decoder(torch.nn.Module):
         ModelMapper.do_map(self, decoder, mapper['decoder'])
         if 'mlp' in mapper and hasattr(self.mlp, 'experts'):
             self.mlp = Mlp(self.mlp, mapper, layer_id)
+        elif SplitSiLUMlp.is_compatible(self.mlp):
+            self.mlp = SplitSiLUMlp(self.mlp)
 
         # gemma4 MoE: router and experts are at decoder layer level (parallel to dense MLP)
         self.has_gemma4_moe = hasattr(self, 'experts') and self.experts is not None

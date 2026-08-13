@@ -147,6 +147,7 @@ private:
         changed |= fuseAttentionOutputC4();
         changed |= fuseMulSilu();
         changed |= fuseMlpOutputC4();
+        changed |= fuseSplitSiLUOutputC4();
         changed |= fuseRoPEInputC4();
         changed |= fuseAttentionValueC4();
         changed |= ensureRoPEInputsC4();
@@ -603,6 +604,54 @@ private:
             removeIndexes.insert(upPost.reshapeIdx);
             removeIndexes.insert(gatePost.convertIdx);
             removeIndexes.insert(gatePost.reshapeIdx);
+            removeIndexes.insert(downReshapeIdx);
+            removeIndexes.insert(downConvertIdx);
+        }
+        bool changed = !removeIndexes.empty();
+        removeOps(removeIndexes);
+        return changed;
+    }
+
+    bool fuseSplitSiLUOutputC4() {
+        rebuildMaps();
+        std::set<int> removeIndexes;
+        for (int idx = 0; idx < (int)mOps.size(); ++idx) {
+            auto op = mOps[idx].get();
+            if (op->type != OpType_SplitSiLU || op->inputIndexes.size() != 1 || op->outputIndexes.size() != 1) {
+                continue;
+            }
+            auto projectionPost = matchLinearPost(op->inputIndexes[0]);
+            if (!projectionPost.valid || !sameConsumers(mConsumers, projectionPost.convOut, projectionPost.convertIdx) ||
+                !sameConsumers(mConsumers, mOps[projectionPost.convertIdx]->outputIndexes[0], projectionPost.reshapeIdx) ||
+                !sameConsumers(mConsumers, projectionPost.reshapeOut, idx)) {
+                continue;
+            }
+            auto projection = mOps[projectionPost.convIdx].get();
+            const int projectionChannels = convolutionOutputCount(projection);
+            if (projectionChannels <= 0 || projectionChannels % 8 != 0) {
+                continue;
+            }
+            int downReshapeIdx = singleConsumer(op->outputIndexes[0]);
+            if (downReshapeIdx < 0 || !isReshape(mOps[downReshapeIdx].get()) ||
+                mOps[downReshapeIdx]->outputIndexes.size() != 1) {
+                continue;
+            }
+            int downConvertIdx = singleConsumer(mOps[downReshapeIdx]->outputIndexes[0]);
+            if (downConvertIdx < 0 || !isConvert(mOps[downConvertIdx].get(), MNN_DATA_FORMAT_NCHW, MNN_DATA_FORMAT_NC4HW4) ||
+                mOps[downConvertIdx]->outputIndexes.size() != 1) {
+                continue;
+            }
+            int downConvIdx = singleConsumer(mOps[downConvertIdx]->outputIndexes[0]);
+            auto downConv = downConvIdx < 0 ? nullptr : mOps[downConvIdx].get();
+            if (!isConvolution(downConv) || downConv->main.AsConvolution2D()->common == nullptr ||
+                downConv->main.AsConvolution2D()->common->inputCount != projectionChannels / 2) {
+                continue;
+            }
+            op->inputIndexes = {projectionPost.convOut};
+            op->outputIndexes = mOps[downConvertIdx]->outputIndexes;
+            op->defaultDimentionFormat = MNN_DATA_FORMAT_NC4HW4;
+            removeIndexes.insert(projectionPost.convertIdx);
+            removeIndexes.insert(projectionPost.reshapeIdx);
             removeIndexes.insert(downReshapeIdx);
             removeIndexes.insert(downConvertIdx);
         }

@@ -67,6 +67,7 @@ extern void ___OpenCLTopKV2Creator__OpType_TopKV2__IMAGE__();
 #ifdef MNN_SUPPORT_TRANSFORMER_FUSE
 extern void ___OpenCLSelfAttentionBufCreator__OpType_FmhaV2__BUFFER__();
 extern void ___OpenCLSplitGeluBufCreator__OpType_SplitGeLU__BUFFER__();
+extern void ___OpenCLSplitGeluBufCreator__OpType_SplitSiLU__BUFFER__();
 extern void ___OpenCLGroupNormBufCreator__OpType_GroupNorm__BUFFER__();
 extern void ___OpenCLLinearAttentionBufCreator__OpType_LinearAttention__BUFFER__();
 extern void ___OpenCLAttentionBufCreator__OpType_Attention__BUFFER__();
@@ -138,6 +139,7 @@ void registerOpenCLOps() {
 #ifdef MNN_SUPPORT_TRANSFORMER_FUSE
     ___OpenCLSelfAttentionBufCreator__OpType_FmhaV2__BUFFER__();
     ___OpenCLSplitGeluBufCreator__OpType_SplitGeLU__BUFFER__();
+    ___OpenCLSplitGeluBufCreator__OpType_SplitSiLU__BUFFER__();
     ___OpenCLGroupNormBufCreator__OpType_GroupNorm__BUFFER__();
     ___OpenCLLinearAttentionBufCreator__OpType_LinearAttention__BUFFER__();
     ___OpenCLAttentionBufCreator__OpType_Attention__BUFFER__();

@@ -401,6 +401,8 @@ class MNNConverter:
             op_type = op['type']
         if op_type == 'FakeLinear':
             return self.rebuild_linear(op, graph)
+        if op_type == 'SplitSiLU':
+            return self.rebuild_split_silu(op)
         if op_type == 'FusedAttention':
             return self.rebuild_attnention(op, graph)
         if op_type == 'FusedRoPE':
@@ -503,6 +505,16 @@ class MNNConverter:
         moe['main'] = { 'attr': moe['main']['attr'][:3] }
         moe['type'] = 'MoE'
         return [moe]
+
+    def rebuild_split_silu(self, op):
+        return [{
+            "inputIndexes": op['inputIndexes'],
+            "main_type": "NONE",
+            "name": op['name'],
+            "outputIndexes": op['outputIndexes'],
+            "type": "SplitSiLU",
+            "defaultDimentionFormat": op['defaultDimentionFormat']
+        }]
 
     def rebuild_layernorm(self, op, graph):
         if "gamma" not in op['main'] or "beta" not in op['main']:
