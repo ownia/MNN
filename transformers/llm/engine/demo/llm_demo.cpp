@@ -320,8 +320,18 @@ void chat(Llm* llm) {
 }
 int main(int argc, const char* argv[]) {
     if (argc < 2) {
-        std::cout << "Usage: " << argv[0] << " config.json <prompt.txt|audio.wav>" << std::endl;
+        std::cout << "Usage: " << argv[0] << " config.json <prompt.txt|audio.wav> [-l language]" << std::endl;
         return 0;
+    }
+
+    const bool has_asr_language_option = argc >= 4 && isAudioFile(argv[2]) && std::string(argv[3]) == "-l";
+    std::string asr_language;
+    if (has_asr_language_option) {
+        if (argc < 5) {
+            MNN_ERROR("Missing language after -l\n");
+            return 1;
+        }
+        asr_language = argv[4];
     }
 
     std::string config_path = argv[1];
@@ -336,6 +346,9 @@ int main(int argc, const char* argv[]) {
     std::ostringstream tmpPath;
     tmpPath << "tmp_" << std::hex << std::hash<std::string>()(absolutePath(config_path));
     llm->set_config("{\"tmp_path\":\"" + tmpPath.str() + "\"}");
+    if (has_asr_language_option) {
+        llm->set_config("{\"asr_language\":\"" + asr_language + "\"}");
+    }
     {
         AUTOTIME;
         bool res = llm->load();
@@ -354,11 +367,11 @@ int main(int argc, const char* argv[]) {
         return 0;
     }
     int max_token_number = -1;
-    if (argc >= 4) {
+    if (argc >= 4 && !has_asr_language_option) {
         std::istringstream os(argv[3]);
         os >> max_token_number;
     }
-    if (argc >= 5) {
+    if (argc >= 5 && !has_asr_language_option) {
         MNN_PRINT("Set not thinking, only valid for Qwen3\n");
         llm->set_config(R"({
             "jinja": {
