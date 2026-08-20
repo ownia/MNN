@@ -276,19 +276,22 @@ std::vector<uint32_t> getGemmParams(const std::vector<uint32_t> &gemmSize, const
         params_prefer.assign({16, 2, 16, 16, 64 , 8 , 8 , 32 , 0, 0, 0, 0, 4, 4});
     }
 
+    std::vector<uint32_t> heuristicParams;
+    if (tuneLevel == None || tuneLevel == Fast || tuneLevel == Wide) {
+        heuristicParams = getHeuristicXgemmParams(gemmSize[0], gemmSize[1], gemmSize[2], gemmSize[4],
+                                                  runtime->getGpuType(), runtime->getGpuLevel());
+        if (heuristicParams.size() != 14 ||
+            !isCandidateValid(heuristicParams[0], heuristicParams[1], heuristicParams[4], heuristicParams[3],
+                              heuristicParams[12], heuristicParams[7], heuristicParams[6], heuristicParams[13],
+                              heuristicParams[2], heuristicParams[5], heuristicParams[8], heuristicParams[9],
+                              runtime, gemmSize, precision)) {
+            heuristicParams.clear();
+        }
+    }
+
     if (tuneLevel == None || tuneLevel == Fast) {
-        // Use heuristic Xgemm parameters based on GPU type and level
-        {
-            auto heuristicParams = getHeuristicXgemmParams(gemmSize[0], gemmSize[1], gemmSize[2], gemmSize[4],
-                                                           runtime->getGpuType(), runtime->getGpuLevel());
-            // Validate the heuristic params (empty means no recommendation for this device)
-            if (heuristicParams.size() == 14 &&
-                isCandidateValid(heuristicParams[0], heuristicParams[1], heuristicParams[4], heuristicParams[3],
-                                 heuristicParams[12], heuristicParams[7], heuristicParams[6], heuristicParams[13],
-                                 heuristicParams[2], heuristicParams[5], heuristicParams[8], heuristicParams[9],
-                                 runtime, gemmSize, precision)) {
-                return heuristicParams;
-            }
+        if (!heuristicParams.empty()) {
+            return heuristicParams;
         }
 
         // Fallback to original simple heuristic
@@ -388,6 +391,10 @@ std::vector<uint32_t> getGemmParams(const std::vector<uint32_t> &gemmSize, const
         std::vector<uint32_t> currentCombination(candidates.size());
         generateCombinations(candidates, currentCombination, totalCombinations, 0);
     }
+    if (tuneLevel == Wide && !heuristicParams.empty() &&
+        std::find(totalCombinations.begin(), totalCombinations.end(), heuristicParams) == totalCombinations.end()) {
+        totalCombinations.insert(totalCombinations.begin() + 1, heuristicParams);
+    }
     for(int i = 0; i < totalCombinations.size(); i++) {
         uint32_t kwg   = totalCombinations[i][0];
         uint32_t kwi   = totalCombinations[i][1];
@@ -404,7 +411,8 @@ std::vector<uint32_t> getGemmParams(const std::vector<uint32_t> &gemmSize, const
         uint32_t vwm   = totalCombinations[i][12];
         uint32_t vwn   = totalCombinations[i][13];
         
-        if(isCandidateValid(kwg, kwi, mwg, mdimc, vwm, nwg, ndimc, vwn, mdima, ndimb, sa, sb, runtime, gemmSize, precision)) {
+        if (i == 0 || isCandidateValid(kwg, kwi, mwg, mdimc, vwm, nwg, ndimc, vwn, mdima, ndimb, sa, sb,
+                                       runtime, gemmSize, precision)) {
             
             std::set<std::string> buildOptions;
             buildOptions.clear();

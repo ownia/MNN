@@ -103,6 +103,7 @@ OpenCLRuntime::OpenCLRuntime(int platformSize, int platformId, int deviceId, voi
                 {"Mali-G615", {VALHALL, LOW}},
                 {"Mali-G710", {VALHALL, TOP}},
                 {"Mali-G715", {VALHALL, TOP}},
+                {"Mali-G720", {VALHALL, TOP}},
             };
         
             const std::string deviceVendor  = mFirstGPUDevicePtr->getInfo<CL_DEVICE_VENDOR>();
@@ -158,9 +159,13 @@ OpenCLRuntime::OpenCLRuntime(int platformSize, int platformId, int deviceId, voi
                 mDeviceInfo = deviceVersion.size() <= 14 ? deviceVersion : deviceVersion.substr(deviceVersion.size()-14);
             } else if (deviceName.find("Mali") != std::string::npos) {
                 mGpuType = MALI;
-                if(maliArMap.find(deviceName) != maliArMap.end()){
-                    mMaliAr = maliArMap[deviceName].first;
-                    mGpuLevel = maliArMap[deviceName].second;
+                auto maliAr = maliArMap.find(deviceName);
+                if (maliAr == maliArMap.end() && deviceName.find("Mali-G720") == 0) {
+                    maliAr = maliArMap.find("Mali-G720");
+                }
+                if (maliAr != maliArMap.end()) {
+                    mMaliAr = maliAr->second.first;
+                    mGpuLevel = maliAr->second.second;
                 }else{
                     mMaliAr = VALHALL;
                     mGpuLevel = UNDEFINED;
