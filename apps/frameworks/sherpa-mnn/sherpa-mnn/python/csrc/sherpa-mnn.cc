@@ -36,7 +36,7 @@
 #include "sherpa-mnn/python/csrc/offline-tts.h"
 #endif
 
-#if SHERPA_ONNX_ENABLE_SPEAKER_DIARIZATION == 1
+#if SHERPA_MNN_ENABLE_SPEAKER_DIARIZATION == 1
 #include "sherpa-mnn/python/csrc/fast-clustering.h"
 #include "sherpa-mnn/python/csrc/offline-speaker-diarization-result.h"
 #include "sherpa-mnn/python/csrc/offline-speaker-diarization.h"
@@ -81,7 +81,7 @@ PYBIND11_MODULE(_sherpa_mnn, m) {
   PybindSpeakerEmbeddingManager(&m);
   PybindSpokenLanguageIdentification(&m);
 
-#if SHERPA_ONNX_ENABLE_SPEAKER_DIARIZATION == 1
+#if SHERPA_MNN_ENABLE_SPEAKER_DIARIZATION == 1
   PybindFastClustering(&m);
   PybindOfflineSpeakerDiarizationResult(&m);
   PybindOfflineSpeakerDiarization(&m);

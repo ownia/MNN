@@ -21,6 +21,9 @@ void OfflineTtsModelConfig::Register(ParseOptions *po) {
 
   po->Register("provider", &provider,
                "Specify a provider to use: cpu, cuda, coreml");
+
+  po->Register("mnn-cache-file", &mnn_cache_file,
+               "Path to the persistent MNN runtime cache file");
 }
 
 bool OfflineTtsModelConfig::Validate() const {
@@ -49,7 +52,8 @@ std::string OfflineTtsModelConfig::ToString() const {
   os << "kokoro=" << kokoro.ToString() << ", ";
   os << "num_threads=" << num_threads << ", ";
   os << "debug=" << (debug ? "True" : "False") << ", ";
-  os << "provider=\"" << provider << "\")";
+  os << "provider=\"" << provider << "\", ";
+  os << "mnn_cache_file=\"" << mnn_cache_file << "\")";
 
   return os.str();
 }

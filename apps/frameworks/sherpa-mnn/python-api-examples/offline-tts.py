@@ -338,6 +338,13 @@ def get_args():
     )
 
     parser.add_argument(
+        "--mnn-cache-file",
+        type=str,
+        default="",
+        help="Path to a persistent MNN runtime cache file",
+    )
+
+    parser.add_argument(
         "--speed",
         type=float,
         default=1.0,
@@ -385,6 +392,7 @@ def main():
             provider=args.provider,
             debug=args.debug,
             num_threads=args.num_threads,
+            mnn_cache_file=args.mnn_cache_file,
         ),
         rule_fsts=args.tts_rule_fsts,
         max_num_sentences=args.max_num_sentences,

@@ -22,6 +22,7 @@ struct OfflineTtsModelConfig {
   int32_t num_threads = 1;
   bool debug = false;
   std::string provider = "cpu";
+  std::string mnn_cache_file;
 
   OfflineTtsModelConfig() = default;
 
@@ -29,13 +30,15 @@ struct OfflineTtsModelConfig {
                         const OfflineTtsMatchaModelConfig &matcha,
                         const OfflineTtsKokoroModelConfig &kokoro,
                         int32_t num_threads, bool debug,
-                        const std::string &provider)
+                        const std::string &provider,
+                        const std::string &mnn_cache_file = "")
       : vits(vits),
         matcha(matcha),
         kokoro(kokoro),
         num_threads(num_threads),
         debug(debug),
-        provider(provider) {}
+        provider(provider),
+        mnn_cache_file(mnn_cache_file) {}
 
   void Register(ParseOptions *po);
   bool Validate() const;

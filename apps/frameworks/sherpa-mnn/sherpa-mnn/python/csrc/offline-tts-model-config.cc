@@ -25,18 +25,19 @@ void PybindOfflineTtsModelConfig(py::module *m) {
       .def(py::init<const OfflineTtsVitsModelConfig &,
                     const OfflineTtsMatchaModelConfig &,
                     const OfflineTtsKokoroModelConfig &, int32_t, bool,
-                    const std::string &>(),
+            const std::string &, const std::string &>(),
            py::arg("vits") = OfflineTtsVitsModelConfig{},
            py::arg("matcha") = OfflineTtsMatchaModelConfig{},
            py::arg("kokoro") = OfflineTtsKokoroModelConfig{},
            py::arg("num_threads") = 1, py::arg("debug") = false,
-           py::arg("provider") = "cpu")
+         py::arg("provider") = "cpu", py::arg("mnn_cache_file") = "")
       .def_readwrite("vits", &PyClass::vits)
       .def_readwrite("matcha", &PyClass::matcha)
       .def_readwrite("kokoro", &PyClass::kokoro)
       .def_readwrite("num_threads", &PyClass::num_threads)
       .def_readwrite("debug", &PyClass::debug)
       .def_readwrite("provider", &PyClass::provider)
+      .def_readwrite("mnn_cache_file", &PyClass::mnn_cache_file)
       .def("__str__", &PyClass::ToString);
 }
 

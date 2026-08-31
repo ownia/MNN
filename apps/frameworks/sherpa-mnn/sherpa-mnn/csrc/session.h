@@ -14,12 +14,17 @@
 
 namespace sherpa_mnn {
 
+struct OfflineTtsModelConfig;
+
 MNNConfig GetSessionOptionsImpl(
     int32_t num_threads, const std::string &provider_str,
-    const ProviderConfig *provider_config = nullptr);
+  const ProviderConfig *provider_config = nullptr,
+  const std::string &mnn_cache_file = "");
 
 MNNConfig GetSessionOptions(const OfflineLMConfig &config);
 MNNConfig GetSessionOptions(const OnlineLMConfig &config);
+
+MNNConfig GetSessionOptions(const OfflineTtsModelConfig &config);
 
 MNNConfig GetSessionOptions(const OnlineModelConfig &config);
 

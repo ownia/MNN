@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "sherpa-mnn/csrc/macros.h"
+#include "sherpa-mnn/csrc/offline-tts-model-config.h"
 #include "sherpa-mnn/csrc/provider.h"
 
 
@@ -22,14 +23,21 @@ namespace sherpa_mnn {
 
 MNNConfig GetSessionOptionsImpl(
     int32_t num_threads, const std::string &provider_str,
-    const ProviderConfig *provider_config /*= nullptr*/) {
+  const ProviderConfig *provider_config /*= nullptr*/,
+  const std::string &mnn_cache_file /*= ""*/) {
   MNN::ScheduleConfig config;
+  if (provider_str == "opencl") {
+    config.type = MNN_FORWARD_OPENCL;
+  }
   config.numThread = num_threads;
   MNN::BackendConfig bnConfig;
   bnConfig.memory = MNN::BackendConfig::Memory_Low;
   config.backendConfig = &bnConfig;
   MNNConfig sess_opts;
   sess_opts.pManager.reset(MNN::Express::Executor::RuntimeManager::createRuntimeManager(config));
+  if (!mnn_cache_file.empty()) {
+    sess_opts.pManager->setCache(mnn_cache_file);
+  }
   sess_opts.pConfig.rearrange = true;
   return sess_opts;
 }
@@ -62,6 +70,11 @@ MNNConfig GetSessionOptions(const OfflineLMConfig &config) {
 
 MNNConfig GetSessionOptions(const OnlineLMConfig &config) {
   return GetSessionOptionsImpl(config.lm_num_threads, config.lm_provider);
+}
+
+MNNConfig GetSessionOptions(const OfflineTtsModelConfig &config) {
+  return GetSessionOptionsImpl(config.num_threads, config.provider, nullptr,
+                               config.mnn_cache_file);
 }
 
 MNNConfig GetSessionOptions(int32_t num_threads,
