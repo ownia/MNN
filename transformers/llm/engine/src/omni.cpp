@@ -32,6 +32,9 @@
 #ifdef LLM_SUPPORT_AUDIO
 #include <audio/audio.hpp>
 #endif
+
+#define DUMP_TALKER_PERFORMANCE
+
 namespace MNN {
 using namespace Express;
 namespace Transformer {
@@ -2105,8 +2108,10 @@ bool Omni::generateTTS(const std::string& text, const std::string& language, int
     if (talkerContext) {
         mContext->prompt_len = talkerContext->prompt_len;
         mContext->gen_seq_len = talkerContext->gen_seq_len;
+        mContext->prefill_us = talkerContext->prefill_us;
         mContext->audio_us = talkerContext->audio_us;
         mContext->decode_us = talkerContext->decode_us;
+        mContext->ttfa_us = talkerContext->ttfa_us;
         mContext->status = talkerContext->status;
     }
     return ok;
@@ -2709,6 +2714,12 @@ bool Talker::generateQwen3TTS(const std::string& prompt, int maxFrames, const st
     if (maxFrames <= 0) {
         maxFrames = mMaxNewTokens;
     }
+    MNN::Timer totalTimer;
+    MNN::Timer prefillTimer;
+    mContext->prefill_us = 0;
+    mContext->decode_us = 0;
+    mContext->audio_us = 0;
+    mContext->ttfa_us = 0;
     constexpr int hiddenSize = 1024;
     constexpr int codecEosToken = 2150;
     const int codeGroups = mConfig->code_predictor_groups();
@@ -2775,6 +2786,7 @@ bool Talker::generateQwen3TTS(const std::string& prompt, int maxFrames, const st
         mContext->status = LlmStatus::INTERNAL_ERROR;
         return false;
     }
+    mContext->prefill_us = prefillTimer.durationInUs();
     int seqLen = promptInfo->dim[1];
     std::vector<int> generatedCodes;
     generatedCodes.reserve(maxFrames * codeGroups);
@@ -2850,7 +2862,7 @@ bool Talker::generateQwen3TTS(const std::string& prompt, int maxFrames, const st
         embeddings.insert(embeddings.end(), nextEmbed.begin(), nextEmbed.end());
         seqLen += 1;
     }
-    mContext->decode_us += decodeTimer.durationInUs();
+    mContext->decode_us = decodeTimer.durationInUs();
 
     int frames = static_cast<int>(generatedCodes.size() / codeGroups);
     if (frames <= 0) {
@@ -2868,15 +2880,40 @@ bool Talker::generateQwen3TTS(const std::string& prompt, int maxFrames, const st
 
     MNN::Timer wavTimer;
     auto wavOutputs = mQwen3SpeechDecoder->onForward({decoderCodes});
-    mContext->audio_us += wavTimer.durationInUs();
     if (wavOutputs.size() != 1 || !wavOutputs[0]->getInfo() || !wavOutputs[0]->readMap<float>()) {
         MNN_ERROR("[Error]: invalid qwen3_tts speech decoder output\n");
         mContext->status = LlmStatus::INTERNAL_ERROR;
         return false;
     }
     auto info = wavOutputs[0]->getInfo();
-    bool callbackOk = mWavformCallback(wavOutputs[0]->readMap<float>(), info->size, true);
+    auto waveform = wavOutputs[0]->readMap<float>();
+    mContext->audio_us = wavTimer.durationInUs();
+    mContext->ttfa_us = totalTimer.durationInUs();
+    bool callbackOk = mWavformCallback(waveform, info->size, true);
     mContext->status = callbackOk ? LlmStatus::NORMAL_FINISHED : LlmStatus::USER_CANCEL;
+#ifdef DUMP_TALKER_PERFORMANCE
+    {
+        const float prefillS = mContext->prefill_us / 1e6f;
+        const float decodeS = mContext->decode_us / 1e6f;
+        const float token2wavS = mContext->audio_us / 1e6f;
+        const float ttfaS = mContext->ttfa_us / 1e6f;
+        const float audioDurationS = info->size / 24000.0f;
+        printf("\n#################################\n");
+        printf(" [Qwen3-TTS direct mode]\n");
+        printf("prompt tokens num = %d\n", mContext->prompt_len);
+        printf("decode frames num = %d\n", mContext->gen_seq_len);
+        printf("      prefill time = %.2f s\n", prefillS);
+        printf("       decode time = %.2f s\n", decodeS);
+        printf("         ttfa time = %.2f s\n", ttfaS);
+        printf("     token2wav time = %.2f s\n", token2wavS);
+        printf("          tts time = %.2f s\n", ttfaS);
+        printf("      prefill speed = %.2f tok/s\n", prefillS > 0.0f ? mContext->prompt_len / prefillS : 0.0f);
+        printf("       decode speed = %.2f frame/s\n", decodeS > 0.0f ? mContext->gen_seq_len / decodeS : 0.0f);
+        printf("     token2wav speed = %.2f frame/s\n", token2wavS > 0.0f ? mContext->gen_seq_len / token2wavS : 0.0f);
+        printf("            tts rtf = %.2f\n", audioDurationS > 0.0f ? ttfaS / audioDurationS : 0.0f);
+        printf("##################################\n");
+    }
+#endif
     return callbackOk;
 }
 

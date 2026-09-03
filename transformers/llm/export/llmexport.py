@@ -696,7 +696,10 @@ class LlmExporter(torch.nn.Module):
         token2wav_onnx_list = token2wav_onnx if isinstance(token2wav_onnx, (list, tuple)) else [token2wav_onnx]
         if self.mnn_converter:
             for onnx_path in token2wav_onnx_list:
-                self.mnn_converter.export(onnx_path, self.talker.token2wav.quant_bit)
+                quant_bit = self.talker.token2wav.quant_bit
+                if self.model_type == 'qwen3_tts' and os.path.basename(onnx_path) == 'speaker_encoder.onnx':
+                    quant_bit = 16
+                self.mnn_converter.export(onnx_path, quant_bit)
 
     def export_ple_embed(self):
         """Export Per-Layer Embedding weights for gemma4."""
