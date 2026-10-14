@@ -170,7 +170,13 @@ ErrorCode DeconvBufExecution::onEncode(const std::vector<Tensor *> &inputs, cons
     unit.kernel->get().setArg(idx++, static_cast<int32_t>(outputChannelBlocks));
     
     std::string name = "deconv2d_buf";
-    mLWS = localWS3DDefault(mGWS, maxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), name, unit.kernel, mOpenCLBackend->getCLTuneLevel(), "deconv_2d").first;
+    LwsShortlist wideShortlist;
+    if (outputWidth == 1 && runtime->getGpuType() == MALI) {
+        wideShortlist = {{1, 1, 16}, {1, 1, 32}, {1, 1, 64}, {2, 1, 8},
+                         {2, 1, 16}, {2, 1, 32}, {4, 1, 8}, {4, 1, 16}};
+    }
+    mLWS = localWS3DDefault(mGWS, maxWorkGroupSize, runtime, name, unit.kernel,
+                            mOpenCLBackend->getCLTuneLevel(), "deconv_2d", wideShortlist).first;
     mOpenCLBackend->recordKernel3d(unit.kernel, mGWS, mLWS);
     unit.globalWorkSize = {mGWS[0], mGWS[1], mGWS[2]};
     unit.localWorkSize = {mLWS[0], mLWS[1], mLWS[2]};

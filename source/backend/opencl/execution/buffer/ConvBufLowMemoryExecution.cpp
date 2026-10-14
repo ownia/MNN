@@ -605,6 +605,12 @@ void ConvBufLowMemoryExecution::tuneGeneralCaseLowMemory(Tensor* input, Tensor* 
     std::vector<uint32_t> globalWorkSize[total_kernel];
     std::vector<uint32_t> localWorkSize[total_kernel];
     std::pair<int, int> min_cost(INT_MAX, 0); //(min_time, min_index)
+    LwsShortlist2D wideShortlist;
+    if (width == 1 && mOpenCLBackend->getOpenCLRuntime()->getGpuType() == MALI &&
+        mOpenCLBackend->getCLTuneLevel() == Wide) {
+        actual_kernel = 1;
+        wideShortlist = {{1, 16}, {1, 32}, {1, 64}, {2, 8}, {2, 16}, {2, 128}, {4, 8}, {16, 2}};
+    }
     // MNN_PRINT("Checking kernel %d.\n", knlCheck);
     for (int knl_idx = 0; knl_idx < actual_kernel; knl_idx++) {
         std::set<std::string> buildOption = mResource->mBuildOptions;
@@ -653,7 +659,7 @@ void ConvBufLowMemoryExecution::tuneGeneralCaseLowMemory(Tensor* input, Tensor* 
         std::pair<std::vector<uint32_t>, uint32_t> retTune;
         retTune = localWS2DDefault(globalWorkSize[knl_idx], maxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(),
                                    kernelName[knl_idx] + info, kernel[knl_idx], mOpenCLBackend->getCLTuneLevel(),
-                                   "conv_2d_int_buf");
+                                   "conv_2d_int_buf", wideShortlist);
         if (min_cost.first > retTune.second) {
             min_cost.first = retTune.second;
             min_cost.second = knl_idx;
