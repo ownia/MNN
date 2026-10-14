@@ -96,7 +96,8 @@ static bool isOption(const char* arg) {
 }
 
 static int runTextMode(const std::string& modelDir, const std::string& text, const std::string& language, int maxFrames,
-                       const std::string& dumpDir, float normalizePeak, const std::string& refAudio) {
+                       const std::string& dumpDir, float normalizePeak, const std::string& refAudio,
+                       const std::string& outputPath) {
     std::unique_ptr<Llm> llm(Llm::createLLM(joinPath(modelDir, "config.json")));
     llm->set_config("{\"tmp_path\":\"tmp\",\"async\":false}");
     if (!llm->load()) {
@@ -142,10 +143,19 @@ static int runTextMode(const std::string& modelDir, const std::string& text, con
         if (normalizePeak > 0.0f) {
             dumpFloatVector(joinPath(dumpDir, "mnn_text_waveform_normalized.bin"), waveformToSave);
         }
+    }
+    std::string wavPath = outputPath;
+    if (wavPath.empty() && !dumpDir.empty()) {
+        wavPath = joinPath(dumpDir, "qwen3_tts_text.wav");
+    }
+    if (!wavPath.empty()) {
         auto waveformVar =
             _Const(waveformToSave.data(), {static_cast<int>(waveformToSave.size())}, NCHW, halide_type_of<float>());
-        MNN::AUDIO::save(joinPath(dumpDir, "qwen3_tts_text.wav"), waveformVar, 24000);
-        MNN_PRINT("saved wav: %s\n", joinPath(dumpDir, "qwen3_tts_text.wav").c_str());
+        if (!MNN::AUDIO::save(wavPath, waveformVar, 24000)) {
+            MNN_ERROR("failed to save wav: %s\n", wavPath.c_str());
+            return 1;
+        }
+        MNN_PRINT("saved wav: %s\n", wavPath.c_str());
     }
     MNN_PRINT("Qwen3-TTS text C++ chain finished. frames=%d\n", context ? context->gen_seq_len : 0);
     if (context) {
@@ -165,11 +175,12 @@ int main(int argc, char** argv) {
     if (argc < 4 || std::strcmp(argv[2], "--text") != 0) {
         MNN_PRINT(
             "Usage: %s <model_dir> --text <text> [max_frames] [dump_dir] [language] "
-            "--ref_audio <wav> [--normalize [target_peak]]\n",
+            "--ref_audio <wav> [--output <wav>] [--normalize [target_peak]]\n",
             argv[0]);
         MNN_PRINT(
             "--ref_audio is required for speaker-embedding-only voice cloning; the zero speaker embedding path is "
             "unsupported.\n");
+        MNN_PRINT("--output overrides the dump_dir WAV path; its parent directory must already exist.\n");
         MNN_PRINT("max_frames defaults to 128 and is a hard cap; too small a value truncates the utterance.\n");
         MNN_PRINT("Download ref audio to: transformers/llm/resource/audio/qwen3_tts_ref.wav\n");
         MNN_PRINT(
@@ -185,6 +196,7 @@ int main(int argc, char** argv) {
     float normalizePeak = -1.0f;
     bool normalizeRequested = false;
     std::string refAudio;
+    std::string outputPath;
 
     int index = 4;
     if (index < argc && !isOption(argv[index])) {
@@ -197,6 +209,15 @@ int main(int argc, char** argv) {
         language = argv[index++];
     }
     while (index < argc) {
+        if (std::strcmp(argv[index], "--output") == 0) {
+            ++index;
+            if (index >= argc || isOption(argv[index]) || argv[index][0] == '\0') {
+                MNN_ERROR("--output requires a wav path\n");
+                return 1;
+            }
+            outputPath = argv[index++];
+            continue;
+        }
         if (std::strcmp(argv[index], "--ref_audio") == 0) {
             ++index;
             if (index >= argc || isOption(argv[index])) {
@@ -230,5 +251,5 @@ int main(int argc, char** argv) {
         MNN_ERROR("normalize target_peak must be in (0, 1]\n");
         return 1;
     }
-    return runTextMode(modelDir, text, language, maxFrames, dumpDir, normalizePeak, refAudio);
+    return runTextMode(modelDir, text, language, maxFrames, dumpDir, normalizePeak, refAudio, outputPath);
 }
