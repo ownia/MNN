@@ -7,6 +7,7 @@
 #include "llm/llm.hpp"
 #include "audio/audio.hpp"
 
+#include <MNN/AutoTime.hpp>
 #include <MNN/expr/ExprCreator.hpp>
 
 #include <algorithm>
@@ -106,17 +107,26 @@ static int runTextMode(const std::string& modelDir, const std::string& text, con
     }
 
     std::vector<float> waveform;
+    MNN::Timer generationTimer;
+    double firstAudioS = 0.0;
+    size_t audioChunks = 0;
     llm->setWavformCallback([&](const float* ptr, size_t size, bool lastChunk) {
         if (ptr && size > 0) {
+            if (audioChunks == 0) {
+                firstAudioS = generationTimer.durationInUs() / 1e6;
+            }
+            ++audioChunks;
             waveform.insert(waveform.end(), ptr, ptr + size);
         }
         return true;
     });
 
+    generationTimer.reset();
     if (!llm->generateTTS(text, language, maxFrames, refAudio)) {
         MNN_ERROR("Qwen3-TTS generation failed\n");
         return 1;
     }
+    const double generationS = generationTimer.durationInUs() / 1e6;
     if (waveform.empty()) {
         MNN_ERROR("Qwen3-TTS generated empty waveform\n");
         return 1;
@@ -158,6 +168,8 @@ static int runTextMode(const std::string& modelDir, const std::string& text, con
         MNN_PRINT("saved wav: %s\n", wavPath.c_str());
     }
     MNN_PRINT("Qwen3-TTS text C++ chain finished. frames=%d\n", context ? context->gen_seq_len : 0);
+    MNN_PRINT("time to first audio (TTFA) = %.3f s\n generation wall time = %.3f s\n audio chunks = %zu\n",
+              firstAudioS, generationS, audioChunks);
     if (context) {
         const double prefillS = context->prefill_us / 1e6;
         const double decodeS   = context->decode_us / 1e6;
