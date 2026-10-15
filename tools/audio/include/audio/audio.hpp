@@ -12,6 +12,7 @@
 #include <MNN/MNNDefine.h>
 #include <MNN/expr/Expr.hpp>
 #include <MNN/expr/NeuralNetWorkOp.hpp>
+#include <ostream>
 
 namespace MNN {
 namespace AUDIO {
@@ -94,6 +95,7 @@ MNN_PUBLIC std::pair<VARP, int> load(const std::string& filename, int sr = 0, in
  * @param sample_rate sample rate
  */
 MNN_PUBLIC bool save(const std::string& filename, VARP audio, int sample_rate);
+MNN_PUBLIC bool save(std::ostream& stream, VARP audio, int sample_rate);
 
 /**
  * @brief compute hamming window

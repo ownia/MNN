@@ -469,6 +469,77 @@ node llm_demo.js ~/qwen2.0_1.5b/config.json ~/qwen2.0_1.5b/prompt.txt
 ```
 
 ### 使用
+#### Qwen3-TTS HTTP API
+
+With `MNN_BUILD_LLM=ON`, `MNN_BUILD_AUDIO=ON`, and `MNN_LLM_BUILD_DEMO=ON`,
+`qwen3_tts_demo` supports a persistent, non-streaming speech server. Run from the
+repository root with an exported Qwen3-TTS model directory:
+
+```bash
+./build/qwen3_tts_demo model_q4 --serve \
+    --ref_audio transformers/llm/resource/audio/qwen3_tts_ref.wav \
+    --host 127.0.0.1 --port 8000 --model qwen3-tts --voice default --max_frames 128
+```
+
+Startup rejects non-Qwen3-TTS models using the engine's merged model configuration.
+The model loads once. Requests use the configured reference audio, with one active
+synthesis at a time. Additional speech requests receive HTTP `503` with
+`Retry-After: 1` instead of waiting for inference. The HTTP pool has four workers
+and at most 16 queued connections; excess connections may be closed before routing.
+`--voice` names that single configured voice; it does not
+select a built-in OpenAI voice. Client-supplied reference paths are not accepted.
+The default host is `127.0.0.1`; there is no authentication or TLS. Use an authenticated
+reverse proxy before exposing this service to untrusted clients.
+
+```bash
+curl --fail-with-body http://127.0.0.1:8000/v1/audio/speech \
+    -H 'Content-Type: application/json' \
+    -d '{"model":"qwen3-tts","input":"Hello.","voice":"default","response_format":"wav"}' \
+    --output speech.wav
+```
+
+This is a WAV-only subset of the OpenAI speech API:
+
+- `model`, `input`, and `voice` are required non-empty strings.
+- `response_format` defaults to `wav`; only 24 kHz, mono, 16-bit PCM WAV is supported.
+- `speed` may only be `1.0`; `stream` may only be `false`. Other fields are rejected.
+- Language is detected automatically. `input` is limited to 4096 UTF-8 bytes;
+    the JSON request body is limited to 16384 bytes.
+- `--max_frames` defaults to 128 and accepts 1 through 2048. This is a hard
+    generation cap, not a request field; too small a value truncates the utterance.
+- `GET /health` reports readiness; `GET /v1/models` lists the configured model ID.
+- Errors use JSON with an `error` object. Successful responses contain the complete
+    WAV with `Content-Type: audio/wav`, not an event stream.
+- `X-TTFA-Ms` and `X-Generation-Ms` exclude model loading, queue waiting, WAV
+    encoding, and network transfer. TTFA currently covers the whole synthesis because
+    the engine emits one audio callback.
+
+The OpenAI Python client can use the endpoint with explicit WAV output:
+
+```python
+from openai import OpenAI
+
+client = OpenAI(base_url="http://127.0.0.1:8000/v1", api_key="unused", timeout=180.0)
+response = client.audio.speech.create(
+        model="qwen3-tts", voice="default", input="Hello.", response_format="wav"
+)
+response.write_to_file("speech.wav")
+```
+
+Run the standard-library HTTP smoke test against a running server:
+
+```bash
+python3 transformers/llm/engine/test/test_qwen3_tts_server.py --url http://127.0.0.1:8000
+```
+
+For local startup-validation tests, add `--binary ./build/qwen3_tts_demo`.
+To exercise engine-error recovery, start the server with a **disposable copy** of
+the reference WAV, then pass its path as `--recovery-ref-audio /path/to/copy.wav`.
+This test synthesizes successfully, temporarily renames the copy to trigger an
+inference error, restores it in a `finally` block, and verifies another successful
+synthesis. Never point this option at the original reference audio. These two tests
+are skipped when their local fixture options are omitted.
+
 #### 运行时配置
 
 ##### 运行时文件

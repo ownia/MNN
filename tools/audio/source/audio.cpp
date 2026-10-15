@@ -334,13 +334,7 @@ std::pair<VARP, int> load(const std::string& filename, int sr, int frame_offset,
     return ret;
 }
 
-bool save(const std::string& filename, VARP audio, int sample_rate) {
-    std::ofstream os(filename, std::ios::binary);
-    if (!os) {
-        MNN_ERROR("Failed to open file for writing: %s\n", filename.c_str());
-        return false;
-    }
-
+bool save(std::ostream& os, VARP audio, int sample_rate) {
     auto audio_size = audio->getInfo()->size;
     auto audio_ptr = audio->readMap<float>();
     WaveHeader header;
@@ -365,8 +359,16 @@ bool save(const std::string& filename, VARP audio, int sample_rate) {
         return false;
     }
 
-    os.close();
     return true;
+}
+
+bool save(const std::string& filename, VARP audio, int sample_rate) {
+    std::ofstream os(filename, std::ios::binary);
+    if (!os) {
+        MNN_ERROR("Failed to open file for writing: %s\n", filename.c_str());
+        return false;
+    }
+    return save(os, audio, sample_rate);
 }
 
 template <typename T>

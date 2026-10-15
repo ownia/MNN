@@ -2611,6 +2611,8 @@ bool Omni::generateTTS(const std::string& text, const std::string& language, int
         MNN_ERROR("[Error]: Qwen3-TTS chat template produced empty prompt\n");
         return false;
     }
+    mTalker->Llm::generate_init(nullptr, nullptr);
+    mTalker->reset();
     bool ok = mTalker->generateQwen3TTS(prompt, max_new_tokens, ref_audio);
     const auto* talkerContext = mTalker->getContext();
     if (talkerContext) {
