@@ -191,6 +191,7 @@ static int runTextMode(const std::string& modelDir, const std::string& text, con
         MNN_PRINT("prefill time = %.2f s\n decode time = %.2f s\n audio process time = %.2f s\n", prefillS, decodeS,
                   audioS);
         MNN_PRINT("waveform duration = %.2f s\n audio RTF = %.3f\n", wavDur, wavDur > 0.0 ? totalS / wavDur : 0.0);
+        MNN_PRINT("e2e RTF = %.3f\n", wavDur > 0.0 ? generationS / wavDur : 0.0);
     }
     return 0;
 }
