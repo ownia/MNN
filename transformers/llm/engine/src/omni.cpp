@@ -2712,6 +2712,11 @@ bool Talker::load() {
         mQwen3RuntimeManager->setExternalFile("");
 
         const bool cpIncremental = mConfig->audio_code_predictor_incremental();
+        const bool cpActiveHead = mConfig->audio_code_predictor_active_head();
+        if (cpActiveHead && !cpIncremental) {
+            MNN_ERROR("[Error]: Qwen3-TTS active-head predictor requires incremental mode\n");
+            return false;
+        }
         if (cpIncremental) {
             // The incremental audio_code_predictor decodes one codec row at a time through
             // a KV cache, so it needs a manager whose KVCACHE_INFO points at its own
@@ -2743,9 +2748,11 @@ bool Talker::load() {
         }
         auto cpManager = cpIncremental ? mQwen3CpRuntimeManager : mQwen3RuntimeManager;
         cpManager->setExternalFile(mConfig->audio_code_predictor_weight().c_str());
+        mQwen3AudioCodePredictorHeads.clear();
         if (cpIncremental) {
             mQwen3AudioCodePredictor.reset(
-                Module::load({"inputs_embeds", "attention_mask", "position_ids"}, {"logits"},
+            Module::load({"inputs_embeds", "attention_mask", "position_ids"},
+                     {cpActiveHead ? "predictor_hidden_states" : "logits"},
                              mConfig->audio_code_predictor_model().c_str(), cpManager, &module_config),
                 Module::destroy);
         } else {
@@ -2753,6 +2760,20 @@ bool Talker::load() {
                 Module::load({"talker_hidden_states", "codec_embeds", "attention_mask", "position_ids"}, {"logits"},
                              mConfig->audio_code_predictor_model().c_str(), cpManager, &module_config),
                 Module::destroy);
+        }
+        if (cpActiveHead) {
+            for (int head = 0; head < mConfig->audio_code_predictor_groups() - 1; ++head) {
+                std::shared_ptr<Module> headModule(
+                    Module::load({"predictor_hidden_states"}, {"logits_" + std::to_string(head)},
+                                 mConfig->audio_code_predictor_model().c_str(), cpManager, &module_config),
+                    Module::destroy);
+                if (!headModule) {
+                    MNN_ERROR("[Error]: failed to load Qwen3-TTS predictor head %d\n", head);
+                    cpManager->setExternalFile("");
+                    return false;
+                }
+                mQwen3AudioCodePredictorHeads.emplace_back(std::move(headModule));
+            }
         }
         cpManager->setExternalFile("");
 
@@ -3412,6 +3433,7 @@ bool Talker::generateQwen3TTS(const std::string& prompt, int maxFrames, const st
     generatedCodes.reserve(maxFrames * codeGroups);
 
     const bool cpIncremental = mConfig->audio_code_predictor_incremental();
+    const bool cpActiveHead = !mQwen3AudioCodePredictorHeads.empty();
     VARP cpMask, cpPos;
     if (!cpIncremental) {
         makeCausalInputs(audioCodePredictorSeq, 1, cpMask, cpPos);
@@ -3532,6 +3554,9 @@ bool Talker::generateQwen3TTS(const std::string& prompt, int maxFrames, const st
             decodeStageTimer.reset();
             auto cpOutputs = mQwen3AudioCodePredictor->onForward({cpPrefill, cpPrefillMask, cpPrefillPos});
             mQwen3CpMeta->sync();
+            if (cpActiveHead && cpOutputs.size() == 1) {
+                cpOutputs = mQwen3AudioCodePredictorHeads[0]->onForward({cpOutputs[0]});
+            }
             if (cpOutputs.size() != 1) {
                 MNN_ERROR("[Error]: qwen3_tts audio_code_predictor prefill output size mismatch at frame %d: %zu\n", step,
                           cpOutputs.size());
@@ -3556,6 +3581,9 @@ bool Talker::generateQwen3TTS(const std::string& prompt, int maxFrames, const st
                 decodeStageTimer.reset();
                 cpOutputs = mQwen3AudioCodePredictor->onForward({cpStep, cpDecodeMask, cpDecodePos});
                 mQwen3CpMeta->sync();
+                if (cpActiveHead && cpOutputs.size() == 1) {
+                    cpOutputs = mQwen3AudioCodePredictorHeads[group - 1]->onForward({cpOutputs[0]});
+                }
                 if (cpOutputs.size() != 1) {
                     MNN_ERROR("[Error]: qwen3_tts audio_code_predictor output size mismatch at frame %d group %d: %zu\n",
                               step, group, cpOutputs.size());
@@ -3564,7 +3592,7 @@ bool Talker::generateQwen3TTS(const std::string& prompt, int maxFrames, const st
                 }
                 addDecodeStage(predictorDecode);
                 decodeStageTimer.reset();
-                token = sample(cpOutputs[0], (group - 1) * 2048, 2048);
+                token = sample(cpOutputs[0], cpActiveHead ? 0 : (group - 1) * 2048, 2048);
                 frameCodes[group] = token < 0 ? 0 : token;
                 addDecodeStage(predictorSampling);
             }
@@ -3673,8 +3701,9 @@ bool Talker::generateQwen3TTS(const std::string& prompt, int maxFrames, const st
     auto info = wavOutputs[0]->getInfo();
     bool callbackOk = mWavformCallback(wavOutputs[0]->readMap<float>(), info->size, true);
     mContext->status = callbackOk ? LlmStatus::NORMAL_FINISHED : LlmStatus::USER_CANCEL;
-    MNN_PRINT("Qwen3-TTS decode wall-time stages: frames=%d, predictor=%s, total=%.3f s (%.3f ms/frame)\n",
-              frames, cpIncremental ? "incremental" : "full-sequence", decodeUs / 1e6, decodeUs / 1e3 / frames);
+    MNN_PRINT("Qwen3-TTS decode wall-time stages: frames=%d, predictor=%s, heads=%s, total=%.3f s (%.3f ms/frame)\n",
+              frames, cpIncremental ? "incremental" : "full-sequence", cpActiveHead ? "active" : "all",
+              decodeUs / 1e6, decodeUs / 1e3 / frames);
     const double decodePercentScale = decodeUs > 0 ? 100.0 / decodeUs : 0.0;
     int64_t measuredDecodeUs = 0;
     auto printDecodeStage = [&](const char* name, const DecodeStageStats& stage) {

@@ -363,10 +363,11 @@ class Qwen3TTSAudioCodePredictor(torch.nn.Module):
         # Every head reads the last row: at decode step g the last row is
         # position g, exactly the row head g-1 was trained on (head i reads row
         # i+1), so callers keep sampling the flat offset (g-1)*vocab.
+        last_hidden = hidden_states[:, -1:, :]
         logits = []
         for i in range(self.config.num_code_groups - 1):
-            logits.append(self.predictor.lm_head[i](hidden_states[:, -1:, :]))
-        return torch.cat(logits, dim=1)
+            logits.append(self.predictor.lm_head[i](last_hidden))
+        return (torch.cat(logits, dim=1), last_hidden, *logits)
 
     @spinner_run(f'export qwen3_tts audio_code_predictor to ')
     def export(self, onnx_path):
@@ -380,7 +381,8 @@ class Qwen3TTSAudioCodePredictor(torch.nn.Module):
         onnx_export(self, (inputs_embeds, attention_mask, position_ids),
                     audio_code_predictor_onnx,
                     input_names=['inputs_embeds', 'attention_mask', 'position_ids'],
-                    output_names=['logits'],
+                    output_names=['logits', 'predictor_hidden_states'] +
+                                 [f'logits_{head}' for head in range(self.config.num_code_groups - 1)],
                     dynamic_axes={
                         'inputs_embeds': { 1: 'size' },
                         'attention_mask': { 2: 'size', 3: 'size' },
@@ -473,6 +475,7 @@ class Qwen3TTSTalker(Talker):
             'code_predictor_vocab_size': self.talker.config.code_predictor_config.vocab_size,
             'code_predictor_groups': self.talker.config.code_predictor_config.num_code_groups,
             'code_predictor_incremental': True,
+            'code_predictor_active_head': True,
             'speech_decoder_model': 'speech_decoder.mnn',
             'speech_decoder_weight': 'speech_decoder.mnn.weight',
             'speech_decoder_upsample_rate': 1920,

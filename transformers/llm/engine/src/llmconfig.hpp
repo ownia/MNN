@@ -248,6 +248,8 @@ public:
 
     bool audio_code_predictor_incremental() const { return config_.value("code_predictor_incremental", false); }
 
+    bool audio_code_predictor_active_head() const { return config_.value("code_predictor_active_head", false); }
+
     std::string speech_decoder_model() const {
         return base_dir_ + config_.value("speech_decoder_model", "speech_decoder.mnn");
     }
