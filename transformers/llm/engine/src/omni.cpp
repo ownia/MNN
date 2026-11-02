@@ -3485,9 +3485,23 @@ bool Talker::generateQwen3TTS(const std::string& prompt, int maxFrames, const st
         cpDecodePos = makeTensorInput<int>({1, 1});
     }
 
+    struct DecodeStageStats {
+        int64_t totalUs = 0;
+        int calls = 0;
+    };
+    DecodeStageStats firstCodeSampling, predictorInputs, predictorPrefill, predictorDecode;
+    DecodeStageStats predictorSampling, codecEmbedding, talkerInputs, talkerForward;
+    MNN::Timer decodeStageTimer;
+    auto addDecodeStage = [&](DecodeStageStats& stage) {
+        stage.totalUs += decodeStageTimer.durationInUs();
+        ++stage.calls;
+    };
+
     MNN::Timer decodeTimer;
     for (int step = 0; step < maxFrames; ++step) {
+        decodeStageTimer.reset();
         int firstCode = mSampler->sample(talkerOutputs[0], firstCodeCandidates);
+        addDecodeStage(firstCodeSampling);
         if (firstCode == codecEosToken) {
             break;
         }
@@ -3497,6 +3511,7 @@ bool Talker::generateQwen3TTS(const std::string& prompt, int maxFrames, const st
             return false;
         }
 
+        decodeStageTimer.reset();
         std::vector<int> frameCodes(codeGroups, 0);
         frameCodes[0] = firstCode;
         if (cpIncremental) {
@@ -3513,6 +3528,8 @@ bool Talker::generateQwen3TTS(const std::string& prompt, int maxFrames, const st
             mDiskEmbedding->embedding({firstCode}, prefillPtr + hiddenSize);
             mQwen3CpMeta->remove = mQwen3CpMeta->previous;
             mQwen3CpMeta->add    = 2;
+            addDecodeStage(predictorInputs);
+            decodeStageTimer.reset();
             auto cpOutputs = mQwen3AudioCodePredictor->onForward({cpPrefill, cpPrefillMask, cpPrefillPos});
             mQwen3CpMeta->sync();
             if (cpOutputs.size() != 1) {
@@ -3521,9 +3538,13 @@ bool Talker::generateQwen3TTS(const std::string& prompt, int maxFrames, const st
                 mContext->status = LlmStatus::INTERNAL_ERROR;
                 return false;
             }
+            addDecodeStage(predictorPrefill);
+            decodeStageTimer.reset();
             int token = sample(cpOutputs[0], 0, 2048);
             frameCodes[1] = token < 0 ? 0 : token;
+            addDecodeStage(predictorSampling);
             for (int group = 2; group < codeGroups; ++group) {
+                decodeStageTimer.reset();
                 auto cpStep    = makeTensorInput<float>({1, 1, hiddenSize});
                 auto stepPtr   = cpStep->writeMap<float>();
                 mQwen3AudioCodePredictorEmbedding->embedding(
@@ -3531,6 +3552,8 @@ bool Talker::generateQwen3TTS(const std::string& prompt, int maxFrames, const st
                 auto posPtr = cpDecodePos->writeMap<int>();
                 posPtr[0]   = group;
                 mQwen3CpMeta->add = 1;
+                addDecodeStage(predictorInputs);
+                decodeStageTimer.reset();
                 cpOutputs = mQwen3AudioCodePredictor->onForward({cpStep, cpDecodeMask, cpDecodePos});
                 mQwen3CpMeta->sync();
                 if (cpOutputs.size() != 1) {
@@ -3539,8 +3562,11 @@ bool Talker::generateQwen3TTS(const std::string& prompt, int maxFrames, const st
                     mContext->status = LlmStatus::INTERNAL_ERROR;
                     return false;
                 }
+                addDecodeStage(predictorDecode);
+                decodeStageTimer.reset();
                 token = sample(cpOutputs[0], (group - 1) * 2048, 2048);
                 frameCodes[group] = token < 0 ? 0 : token;
+                addDecodeStage(predictorSampling);
             }
         } else {
             for (int group = 1; group < codeGroups; ++group) {
@@ -3554,6 +3580,8 @@ bool Talker::generateQwen3TTS(const std::string& prompt, int maxFrames, const st
                     mContext->status = LlmStatus::INTERNAL_ERROR;
                     return false;
                 }
+                addDecodeStage(predictorInputs);
+                decodeStageTimer.reset();
                 auto cpOutputs =
                     mQwen3AudioCodePredictor->onForward({talkerOutputs[1], audioCodePredictorEmbeds, cpMask, cpPos});
                 if (cpOutputs.size() != 1) {
@@ -3562,8 +3590,12 @@ bool Talker::generateQwen3TTS(const std::string& prompt, int maxFrames, const st
                     mContext->status = LlmStatus::INTERNAL_ERROR;
                     return false;
                 }
+                addDecodeStage(predictorDecode);
+                decodeStageTimer.reset();
                 int token = sample(cpOutputs[0], (group - 1) * 2048, 2048);
                 frameCodes[group] = token < 0 ? 0 : token;
+                addDecodeStage(predictorSampling);
+                decodeStageTimer.reset();
             }
         }
         generatedCodes.insert(generatedCodes.end(), frameCodes.begin(), frameCodes.end());
@@ -3573,6 +3605,7 @@ bool Talker::generateQwen3TTS(const std::string& prompt, int maxFrames, const st
         if (step + 1 >= maxFrames) {
             break;
         }
+        decodeStageTimer.reset();
         auto textHidden = selectTextHidden(promptOutputs[1], promptOutputs[2], step, hiddenSize);
         auto codecFrameEmbeds =
             makeQwen3AudioCodePredictorCodecEmbeds(mDiskEmbedding.get(), mQwen3AudioCodePredictorEmbedding.get(), frameCodes,
@@ -3591,13 +3624,17 @@ bool Talker::generateQwen3TTS(const std::string& prompt, int maxFrames, const st
             return false;
         }
         embeddings.insert(embeddings.end(), nextEmbed.begin(), nextEmbed.end());
+        addDecodeStage(codecEmbedding);
 
+        decodeStageTimer.reset();
         auto decodeEmbeds = makeTensorInputFromVector<float>({1, 1, hiddenSize}, nextEmbed);
         {
             auto posPtr = decodePos->writeMap<int>();
             posPtr[0] = posPtr[1] = posPtr[2] = seqLen;
         }
         mMeta->add = 1;
+        addDecodeStage(talkerInputs);
+        decodeStageTimer.reset();
         talkerOutputs = mModule->onForward({decodeEmbeds, decodeMask, decodePos});
         mMeta->sync();
         if (talkerOutputs.size() != 2) {
@@ -3606,8 +3643,10 @@ bool Talker::generateQwen3TTS(const std::string& prompt, int maxFrames, const st
             return false;
         }
         seqLen += 1;
+        addDecodeStage(talkerForward);
     }
-    mContext->decode_us += decodeTimer.durationInUs();
+    const int64_t decodeUs = decodeTimer.durationInUs();
+    mContext->decode_us += decodeUs;
 
     int frames = static_cast<int>(generatedCodes.size() / codeGroups);
     if (frames <= 0) {
@@ -3634,6 +3673,26 @@ bool Talker::generateQwen3TTS(const std::string& prompt, int maxFrames, const st
     auto info = wavOutputs[0]->getInfo();
     bool callbackOk = mWavformCallback(wavOutputs[0]->readMap<float>(), info->size, true);
     mContext->status = callbackOk ? LlmStatus::NORMAL_FINISHED : LlmStatus::USER_CANCEL;
+    MNN_PRINT("Qwen3-TTS decode wall-time stages: frames=%d, predictor=%s, total=%.3f s (%.3f ms/frame)\n",
+              frames, cpIncremental ? "incremental" : "full-sequence", decodeUs / 1e6, decodeUs / 1e3 / frames);
+    const double decodePercentScale = decodeUs > 0 ? 100.0 / decodeUs : 0.0;
+    int64_t measuredDecodeUs = 0;
+    auto printDecodeStage = [&](const char* name, const DecodeStageStats& stage) {
+        measuredDecodeUs += stage.totalUs;
+        MNN_PRINT("  %-24s = %.3f s (%.2f%%, %.3f ms/frame, %d calls)\n", name, stage.totalUs / 1e6,
+                  stage.totalUs * decodePercentScale, stage.totalUs / 1e3 / frames, stage.calls);
+    };
+    printDecodeStage("first-code sampling", firstCodeSampling);
+    printDecodeStage("predictor inputs", predictorInputs);
+    printDecodeStage("predictor prefill", predictorPrefill);
+    printDecodeStage("predictor decode", predictorDecode);
+    printDecodeStage("predictor sampling", predictorSampling);
+    printDecodeStage("codec embedding", codecEmbedding);
+    printDecodeStage("talker inputs", talkerInputs);
+    printDecodeStage("talker forward", talkerForward);
+    const int64_t otherDecodeUs = std::max<int64_t>(0, decodeUs - measuredDecodeUs);
+    MNN_PRINT("  %-24s = %.3f s (%.2f%%, %.3f ms/frame)\n", "other decode overhead", otherDecodeUs / 1e6,
+              otherDecodeUs * decodePercentScale, otherDecodeUs / 1e3 / frames);
     return callbackOk;
 }
 
