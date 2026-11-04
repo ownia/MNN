@@ -141,6 +141,7 @@ private:
     std::shared_ptr<Module> mPreDit, mDit, mBigvgan;
     std::shared_ptr<Module> mQwen3PromptEmbedder, mQwen3AudioCodePredictor, mQwen3CodecEmbedder, mQwen3SpeechDecoder;
     std::shared_ptr<Module> mQwen3SpeakerEncoder;
+    std::shared_ptr<Module> mQwen3AudioCodePredictorDecode;
     std::vector<std::shared_ptr<Module>> mQwen3AudioCodePredictorHeads;
     std::shared_ptr<DiskEmbedding> mQwen3TextEmbedding, mQwen3AudioCodePredictorEmbedding;
     Llm* mThinker;

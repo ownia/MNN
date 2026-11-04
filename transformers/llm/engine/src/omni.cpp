@@ -2761,6 +2761,15 @@ bool Talker::load() {
                              mConfig->audio_code_predictor_model().c_str(), cpManager, &module_config),
                 Module::destroy);
         }
+        mQwen3AudioCodePredictorDecode.reset();
+        if (cpIncremental && mQwen3AudioCodePredictor && mConfig->audio_code_predictor_separate_decode()) {
+            mQwen3AudioCodePredictorDecode.reset(Module::clone(mQwen3AudioCodePredictor.get()), Module::destroy);
+            if (!mQwen3AudioCodePredictorDecode) {
+                MNN_ERROR("[Error]: failed to clone Qwen3-TTS predictor decode module\n");
+                cpManager->setExternalFile("");
+                return false;
+            }
+        }
         if (cpActiveHead) {
             for (int head = 0; head < mConfig->audio_code_predictor_groups() - 1; ++head) {
                 std::shared_ptr<Module> headModule(
@@ -3489,8 +3498,12 @@ bool Talker::generateQwen3TTS(const std::string& prompt, int maxFrames, const st
     // exactly once (16 rows per frame). All 15 lm heads read the last row, and the head
     // scoring code g is head g-1 at flat offset (g-1)*vocab -- the same offsets the old
     // graph produced, since head i was trained on row i+1.
-    VARP cpPrefillMask, cpDecodeMask, cpPrefillPos, cpDecodePos;
+    VARP cpPrefillMask, cpDecodeMask, cpPrefillPos, cpDecodePos, cpPrefillInput, cpDecodeInput;
     if (cpIncremental) {
+        if (mQwen3AudioCodePredictorDecode) {
+            cpPrefillInput = makeTensorInput<float>({1, 2, hiddenSize});
+            cpDecodeInput = makeTensorInput<float>({1, 1, hiddenSize});
+        }
         if (scalarMask) {
             cpPrefillMask = makeScalarZeroMask();
             cpDecodeMask  = makeScalarZeroMask();
@@ -3518,6 +3531,8 @@ bool Talker::generateQwen3TTS(const std::string& prompt, int maxFrames, const st
         stage.totalUs += decodeStageTimer.durationInUs();
         ++stage.calls;
     };
+    auto* cpDecodeModule = mQwen3AudioCodePredictorDecode ? mQwen3AudioCodePredictorDecode.get()
+                                                       : mQwen3AudioCodePredictor.get();
 
     MNN::Timer decodeTimer;
     for (int step = 0; step < maxFrames; ++step) {
@@ -3544,7 +3559,8 @@ bool Talker::generateQwen3TTS(const std::string& prompt, int maxFrames, const st
                 mContext->status = LlmStatus::INTERNAL_ERROR;
                 return false;
             }
-            auto cpPrefill = makeTensorInput<float>({1, 2, hiddenSize});
+            auto cpPrefill = cpPrefillInput.get() != nullptr ? cpPrefillInput
+                                                           : makeTensorInput<float>({1, 2, hiddenSize});
             auto prefillPtr = cpPrefill->writeMap<float>();
             std::copy(talkerHidden.begin(), talkerHidden.end(), prefillPtr);
             mDiskEmbedding->embedding({firstCode}, prefillPtr + hiddenSize);
@@ -3570,7 +3586,8 @@ bool Talker::generateQwen3TTS(const std::string& prompt, int maxFrames, const st
             addDecodeStage(predictorSampling);
             for (int group = 2; group < codeGroups; ++group) {
                 decodeStageTimer.reset();
-                auto cpStep    = makeTensorInput<float>({1, 1, hiddenSize});
+                auto cpStep    = cpDecodeInput.get() != nullptr ? cpDecodeInput
+                                                               : makeTensorInput<float>({1, 1, hiddenSize});
                 auto stepPtr   = cpStep->writeMap<float>();
                 mQwen3AudioCodePredictorEmbedding->embedding(
                     {(group - 2) * mConfig->audio_code_predictor_vocab_size() + frameCodes[group - 1]}, stepPtr);
@@ -3579,7 +3596,7 @@ bool Talker::generateQwen3TTS(const std::string& prompt, int maxFrames, const st
                 mQwen3CpMeta->add = 1;
                 addDecodeStage(predictorInputs);
                 decodeStageTimer.reset();
-                cpOutputs = mQwen3AudioCodePredictor->onForward({cpStep, cpDecodeMask, cpDecodePos});
+                cpOutputs = cpDecodeModule->onForward({cpStep, cpDecodeMask, cpDecodePos});
                 mQwen3CpMeta->sync();
                 if (cpActiveHead && cpOutputs.size() == 1) {
                     cpOutputs = mQwen3AudioCodePredictorHeads[group - 1]->onForward({cpOutputs[0]});

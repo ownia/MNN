@@ -250,6 +250,8 @@ public:
 
     bool audio_code_predictor_active_head() const { return config_.value("code_predictor_active_head", false); }
 
+    bool audio_code_predictor_separate_decode() const { return config_.value("code_predictor_separate_decode", true); }
+
     std::string speech_decoder_model() const {
         return base_dir_ + config_.value("speech_decoder_model", "speech_decoder.mnn");
     }
